@@ -42,8 +42,8 @@ export const CAMERA_TRANSITION_DURATION = 1.2; // seconds
 export const BLOCK_POLL_INTERVAL = 5000; // ms
 export const SYNC_POLL_INTERVAL = 10000; // ms
 
-// RPC
-export const RPC_URL = "https://rpc-bradbury.genlayer.com";
+// RPC — all calls go through the local Next.js proxy to avoid browser network issues
+export const RPC_URL = "/api/rpc";
 export const INITIAL_BLOCK_FETCH = 20;
 
 // Star Field
