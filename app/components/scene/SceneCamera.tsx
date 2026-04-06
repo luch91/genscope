@@ -8,7 +8,7 @@ import { BLOCK_STEP } from "../../lib/constants";
 
 export default function SceneCamera() {
   const { camera } = useThree();
-  const { selectedBlockNumber, blocks, cameraTarget } = useSceneState();
+  const { selectedBlockNumber, blocks } = useSceneState();
   const controlsRef = useRef<any>(null);
   const targetRef = useRef(new THREE.Vector3(0, 0, 0));
   const positionRef = useRef(new THREE.Vector3(6, 4, 8));

@@ -85,14 +85,9 @@ function formatTs(ts: string): string {
 }
 
 export default function TransactionPanel() {
-  const { selectedTxHash, transactions, setSelectedTx, selectedBlockNumber, blocks, setSelectedBlock } =
-    useSceneState();
+  const { selectedTxHash, transactions, setSelectedTx } = useSceneState();
 
   const tx = selectedTxHash ? transactions[selectedTxHash] : null;
-  const selectedBlock = selectedBlockNumber != null
-    ? blocks.find((b) => b.number === selectedBlockNumber)
-    : null;
-
   const isVisible = tx !== null && tx !== undefined;
 
   return (

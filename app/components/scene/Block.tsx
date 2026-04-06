@@ -92,6 +92,11 @@ export default function Block({
     meshRef.current.position.y +=
       (y - meshRef.current.position.y) * 0.15;
 
+    // Keep edge glow in sync with mesh position
+    if (edgesRef.current) {
+      edgesRef.current.position.y = meshRef.current.position.y;
+    }
+
     // Hover scale
     const targetScale = hovered || isSelected ? 1.04 : 1.0;
     meshRef.current.scale.x +=

@@ -89,7 +89,6 @@ export interface AppState {
   transactions: Record<string, GenLayerTransaction>;
   selectedBlockNumber: number | null;
   selectedTxHash: string | null;
-  cameraTarget: [number, number, number] | null;
   syncStatus: SyncStatus;
   networkStatus: NetworkStatus;
   totalTxCount: number;
@@ -104,7 +103,6 @@ export interface AppState {
   addTransaction: (tx: GenLayerTransaction) => void;
   setSelectedBlock: (num: number | null) => void;
   setSelectedTx: (hash: string | null) => void;
-  setCameraTarget: (target: [number, number, number] | null) => void;
   setSyncStatus: (status: SyncStatus) => void;
   setNetworkStatus: (status: NetworkStatus) => void;
   setLatestBlockNumber: (n: number) => void;

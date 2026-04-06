@@ -8,7 +8,6 @@ export const useSceneState = create<AppState>((set) => ({
   transactions: {},
   selectedBlockNumber: null,
   selectedTxHash: null,
-  cameraTarget: null,
   syncStatus: { blocksBehind: 0, synced: true },
   networkStatus: "live",
   totalTxCount: 0,
@@ -56,10 +55,6 @@ export const useSceneState = create<AppState>((set) => ({
 
   setSelectedTx: (hash: string | null) => {
     set({ selectedTxHash: hash });
-  },
-
-  setCameraTarget: (target) => {
-    set({ cameraTarget: target });
   },
 
   setSyncStatus: (status: SyncStatus) => {
