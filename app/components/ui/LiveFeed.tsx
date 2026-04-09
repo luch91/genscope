@@ -11,7 +11,8 @@ const HEADER_HEIGHT = 92;
 export default function LiveFeed() {
   const { blocks, setSelectedTx, setSelectedBlock, loadingOlder } = useSceneState();
 
-  // Flatten all transactions across blocks, newest first
+  // Flatten all transactions across blocks, newest first, deduplicated by tx hash
+  const seen = new Set<string>();
   const feedItems = blocks
     .flatMap((b) =>
       b.txDetails.map((tx) => ({
@@ -20,6 +21,11 @@ export default function LiveFeed() {
         timestamp: b.timestamp,
       }))
     )
+    .filter(({ tx }) => {
+      if (seen.has(tx.hash)) return false;
+      seen.add(tx.hash);
+      return true;
+    })
     .slice(0, 80);
 
   return (

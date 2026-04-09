@@ -14,7 +14,7 @@ const STATUS_COLORS = {
   reconnecting: { color: "#ff4444", bg: "rgba(255,68,68,0.1)", border: "#ff444433" },
 };
 
-type PanelKind = "block" | "verified" | "txs" | null;
+type PanelKind = "committed" | "txs" | null;
 
 export default function StatsBar() {
   const {
@@ -26,6 +26,7 @@ export default function StatsBar() {
     networkStatus,
     syncStatus,
     latestBlockNumber,
+    verifiedBlockNumber,
     setSelectedBlock,
     setSelectedTx,
   } = useSceneState();
@@ -35,7 +36,6 @@ export default function StatsBar() {
   const [loadingLive, setLoadingLive] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  const latestLoaded = blocks[0]?.number ?? 0;
   const intelligentPct =
     totalTxCount > 0 ? Math.round((intelligentTxCount / totalTxCount) * 100) : 0;
 
@@ -46,7 +46,11 @@ export default function StatsBar() {
     reconnecting: "RECONNECTING",
   }[networkStatus];
 
-  const verifiedBlocks = latestBlockNumber > 0 ? latestBlockNumber + 1 : 0;
+  // COMMITTED = latest block number on the EVM chain (all blocks committed)
+  const committedBlockNumber = latestBlockNumber > 0 ? latestBlockNumber : 0;
+
+  // VERIFIED BLOCKS = lastVerifiedBlock from explorer stats API
+  // (ZK proof verified on L1 — always ≤ committed/sealed block number)
 
   // Close on outside click
   useEffect(() => {
@@ -65,7 +69,7 @@ export default function StatsBar() {
       return;
     }
     setOpenPanel(kind);
-    if (kind === "verified" && latestBlockNumber > 0) {
+    if (kind === "committed" && latestBlockNumber > 0) {
       setLoadingLive(true);
       setLiveBlock(null);
       getBlockByNumber(latestBlockNumber, true)
@@ -73,13 +77,6 @@ export default function StatsBar() {
         .catch(() => setLiveBlock(null))
         .finally(() => setLoadingLive(false));
     }
-  }
-
-  function handleBlockStatClick() {
-    if (latestLoaded > 0) {
-      setSelectedBlock(latestLoaded);
-    }
-    togglePanel("block");
   }
 
   const allTxs = Object.values(transactions).sort((a, b) => (b.blockNumber ?? 0) - (a.blockNumber ?? 0));
@@ -143,25 +140,22 @@ export default function StatsBar() {
 
         <Divider />
 
-        {/* BLOCK — clickable, zooms scene to latest loaded block */}
+        {/* COMMITTED BLOCKS — clickable, shows live chain head info */}
         <ClickableStatItem
-          label="BLOCK"
-          value={latestLoaded > 0 ? `#${latestLoaded.toLocaleString()}` : "—"}
-          accent="#00FF88"
-          active={openPanel === "block"}
-          onClick={handleBlockStatClick}
-          title="Jump to latest loaded block"
+          label="COMMITTED BLOCKS"
+          value={committedBlockNumber > 0 ? `#${committedBlockNumber.toLocaleString()}` : "—"}
+          accent="#aaffcc"
+          active={openPanel === "committed"}
+          onClick={() => togglePanel("committed")}
+          title="View committed chain head"
         />
         <Divider />
 
-        {/* VERIFIED — clickable, shows live chain head info */}
-        <ClickableStatItem
-          label="VERIFIED"
-          value={verifiedBlocks > 0 ? verifiedBlocks.toLocaleString() : "—"}
-          accent="#aaffcc"
-          active={openPanel === "verified"}
-          onClick={() => togglePanel("verified")}
-          title="View live chain head"
+        {/* VERIFIED BLOCKS — lastVerifiedBlock from explorer stats (ZK proof on L1) */}
+        <StatItem
+          label="VERIFIED BLOCKS"
+          value={verifiedBlockNumber > 0 ? `#${verifiedBlockNumber.toLocaleString()}` : "—"}
+          accent="#00FF88"
         />
         <Divider />
 
@@ -233,34 +227,10 @@ export default function StatsBar() {
 
       {/* ── Dropdown panels ─────────────────────────────────────────────────── */}
 
-      {/* BLOCK panel — just a quick confirmation that the scene jumped */}
-      {openPanel === "block" && latestLoaded > 0 && (
+      {/* COMMITTED panel — live chain head */}
+      {openPanel === "committed" && (
         <DropPanel onClose={() => setOpenPanel(null)}>
-          <PanelHeader icon="◼" title={`Block #${latestLoaded.toLocaleString()}`} color="#00FF88" />
-          <div style={{ padding: "8px 16px 12px" }}>
-            <div style={{ color: "#555", fontSize: 10, fontFamily: "'JetBrains Mono', monospace", marginBottom: 6 }}>
-              {truncateHash(blocks[0]?.hash ?? "", 12)}
-            </div>
-            <div style={{ display: "flex", gap: 12, marginBottom: 6 }}>
-              <StatPill label="Txs" value={blocks[0]?.transactions.length.toString() ?? "0"} color="#aaa" />
-              <StatPill label="Loaded" value={`${blocks.length} blocks`} color="#aaffcc" />
-            </div>
-            {blocks[0]?.timestamp && (
-              <div style={{ color: "#444", fontSize: 9, fontFamily: "'JetBrains Mono', monospace" }}>
-                {formatDistanceToNow(new Date(blocks[0].timestamp * 1000), { addSuffix: true })}
-              </div>
-            )}
-            <div style={{ color: "#00FF8866", fontSize: 9, marginTop: 6 }}>
-              Scene navigated to this block ↑
-            </div>
-          </div>
-        </DropPanel>
-      )}
-
-      {/* VERIFIED panel — live chain head */}
-      {openPanel === "verified" && (
-        <DropPanel onClose={() => setOpenPanel(null)}>
-          <PanelHeader icon="◈" title="Live Chain Head" color="#aaffcc" />
+          <PanelHeader icon="◈" title="Committed Chain Head" color="#aaffcc" />
           <div style={{ padding: "8px 16px 12px" }}>
             {loadingLive ? (
               <div style={{ color: "#555", fontSize: 11, fontFamily: "'JetBrains Mono', monospace" }}>
@@ -286,9 +256,9 @@ export default function StatsBar() {
                   <StatPill label="Gas used" value={parseInt(liveBlock.gasUsed, 16).toLocaleString()} color="#4488ff" />
                   <StatPill label="Miner" value={truncateAddress(liveBlock.miner, 4)} color="#888" />
                 </div>
-                {latestLoaded < parseInt(liveBlock.number, 16) && (
+                {(blocks[0]?.number ?? 0) < parseInt(liveBlock.number, 16) && (
                   <div style={{ color: "#FFD70066", fontSize: 9, marginTop: 8 }}>
-                    {parseInt(liveBlock.number, 16) - latestLoaded} blocks ahead of loaded view
+                    {parseInt(liveBlock.number, 16) - (blocks[0]?.number ?? 0)} blocks ahead of loaded view
                   </div>
                 )}
               </>
@@ -460,7 +430,7 @@ function ClickableStatItem({
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        padding: "0 10px",
+        padding: "0 12px",
         background: active ? "rgba(255,255,255,0.05)" : "none",
         border: active ? `1px solid ${accent}33` : "1px solid transparent",
         borderRadius: 6,
@@ -480,7 +450,7 @@ function ClickableStatItem({
         style={{
           color: accent,
           fontFamily: "'JetBrains Mono', monospace",
-          fontSize: 13,
+          fontSize: 14,
           fontWeight: 700,
           lineHeight: 1.2,
         }}
@@ -489,11 +459,11 @@ function ClickableStatItem({
       </span>
       <span
         style={{
-          color: active ? accent + "99" : "#3a3a5a",
+          color: active ? accent + "bb" : "#666",
           fontFamily: "'JetBrains Mono', monospace",
-          fontSize: 8,
-          letterSpacing: "0.08em",
-          marginTop: 1,
+          fontSize: 9,
+          letterSpacing: "0.06em",
+          marginTop: 2,
         }}
       >
         {label} ↓
@@ -504,12 +474,12 @@ function ClickableStatItem({
 
 function StatItem({ label, value, accent }: { label: string; value: string; accent: string }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "0 10px" }}>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "0 12px" }}>
       <span
         style={{
           color: accent,
           fontFamily: "'JetBrains Mono', monospace",
-          fontSize: 13,
+          fontSize: 14,
           fontWeight: 700,
           lineHeight: 1.2,
         }}
@@ -518,11 +488,11 @@ function StatItem({ label, value, accent }: { label: string; value: string; acce
       </span>
       <span
         style={{
-          color: "#3a3a5a",
+          color: "#666",
           fontFamily: "'JetBrains Mono', monospace",
-          fontSize: 8,
-          letterSpacing: "0.08em",
-          marginTop: 1,
+          fontSize: 9,
+          letterSpacing: "0.06em",
+          marginTop: 2,
         }}
       >
         {label}

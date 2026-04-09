@@ -1,49 +1,53 @@
 "use client";
 import { useEffect, useRef } from "react";
-import { getTransactionAllData } from "../lib/genlayer";
+import { getTransactionReceipt } from "../lib/genlayer";
 import { parseReceipt } from "../lib/parsers";
 import { useSceneState } from "./useSceneState";
 
 export function useTransactions() {
-  const { blocks, transactions, updateBlockTxDetails } = useSceneState();
+  const blocks = useSceneState((s) => s.blocks);
+  const updateBlockTxDetails = useSceneState((s) => s.updateBlockTxDetails);
+
+  // fetchingRef: blocks whose transactions are currently being fetched
+  // processedRef: blocks we've already attempted (prevents infinite retries when
+  //   some txs legitimately return null — e.g. receipts not yet available)
   const fetchingRef = useRef<Set<number>>(new Set());
+  const processedRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
     for (const block of blocks) {
-      // Skip if already fetched or currently fetching
       if (fetchingRef.current.has(block.number)) continue;
-      if (block.transactions.length === 0) continue;
-
-      // Check if all tx details already loaded for this block
-      const allLoaded = block.transactions.every(
-        (hash) => transactions[hash] !== undefined
-      );
-      if (allLoaded && block.txDetails.length > 0) continue;
+      if (processedRef.current.has(block.number)) continue;
+      if (block.transactions.length === 0) {
+        processedRef.current.add(block.number);
+        continue;
+      }
 
       fetchingRef.current.add(block.number);
-
       const blockNum = block.number;
-      const hashes = block.transactions;
+      const hashes = [...block.transactions];
 
+      // All txs in the block fire in parallel.
+      // gen_getTransactionReceipt returns the full receipt (consensus data included)
+      // in a single RPC call — no secondary calls needed.
       Promise.all(
         hashes.map((hash) =>
-          getTransactionAllData(hash)
-            .then((raw) => {
-              if (raw) return parseReceipt(raw, hash, blockNum);
-              return null;
-            })
-            .catch((err) => {
-              console.warn(`Failed to fetch receipt for ${hash}:`, err);
-              return null;
-            })
+          getTransactionReceipt(hash)
+            .then((raw) => (raw ? parseReceipt(raw, hash, blockNum) : null))
+            .catch(() => null)
         )
-      ).then((results) => {
-        const valid = results.filter(Boolean) as ReturnType<typeof parseReceipt>[];
-        if (valid.length > 0) {
-          updateBlockTxDetails(blockNum, valid);
-        }
-        fetchingRef.current.delete(blockNum);
-      });
+      )
+        .then((results) => {
+          const valid = results.filter((r): r is NonNullable<typeof r> => r !== null);
+          if (valid.length > 0) {
+            updateBlockTxDetails(blockNum, valid);
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          fetchingRef.current.delete(blockNum);
+          processedRef.current.add(blockNum);
+        });
     }
-  }, [blocks, transactions, updateBlockTxDetails]);
+  }, [blocks, updateBlockTxDetails]);
 }

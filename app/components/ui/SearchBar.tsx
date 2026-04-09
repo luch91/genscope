@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useSceneState } from "../../hooks/useSceneState";
 import { fetchAndAddBlock } from "../../hooks/useBlocks";
-import { getTransactionAllData } from "../../lib/genlayer";
+import { getTransactionReceipt } from "../../lib/genlayer";
 import { parseReceipt, truncateHash, truncateAddress } from "../../lib/parsers";
 import { formatDistanceToNow } from "date-fns";
 import type { Block, GenLayerTransaction } from "../../types";
@@ -93,28 +93,51 @@ export default function SearchBar() {
       }
 
       if (detected.kind === "tx") {
-        const hash = detected.hash!;
-        // Check store first
-        const cached = transactions[hash];
-        if (cached) {
-          setResult({ kind: "tx", tx: cached });
+        const hash = detected.hash!; // already lowercased by detectQuery
+        const allTxsList = Object.values(transactions);
+
+        // 1. Check store by ETH tx hash (case-insensitive)
+        const cachedByEthHash = allTxsList.find(
+          (tx) => tx.hash.toLowerCase() === hash
+        );
+        if (cachedByEthHash) {
+          setResult({ kind: "tx", tx: cachedByEthHash });
           return;
         }
-        // Fetch from chain
-        const raw = await getTransactionAllData(hash);
-        if (raw && raw.sender !== "0x0000000000000000000000000000000000000000") {
-          // Find the block for this tx (search loaded blocks)
-          const blockForTx = blocks.find((b) => b.transactions.includes(hash));
-          const tx = parseReceipt(raw, hash, blockForTx?.number);
-          // Add to store
-          useSceneState.getState().updateBlockTxDetails(
-            blockForTx?.number ?? 0,
-            [...(blockForTx?.txDetails ?? []), tx]
-          );
-          setResult({ kind: "tx", tx });
-        } else {
-          setResult({ kind: "error", message: "Transaction not found" });
+
+        // 2. Check store by GenLayer TX ID (tx.id — separate from ETH hash)
+        const cachedById = allTxsList.find(
+          (tx) => tx.id.toLowerCase() === hash
+        );
+        if (cachedById) {
+          setResult({ kind: "tx", tx: cachedById });
+          return;
         }
+
+        // 3. Fetch from chain via gen_getTransactionReceipt.
+        //    Accepts both the ETH tx hash (from block) and the GenLayer TX ID.
+        const raw = await getTransactionReceipt(hash);
+        if (raw) {
+          const blockForTx = blocks.find((b) =>
+            b.transactions.some((h) => h.toLowerCase() === hash)
+          );
+          const tx = parseReceipt(raw, hash, blockForTx?.number);
+          const store = useSceneState.getState();
+          if (blockForTx) {
+            // Block is loaded — attach tx to the block's txDetails
+            if (!blockForTx.txDetails.some((t) => t.hash === tx.hash)) {
+              store.updateBlockTxDetails(blockForTx.number, [...blockForTx.txDetails, tx]);
+            }
+          } else {
+            // Block not yet loaded — add tx directly to the transactions map
+            // so TransactionPanel can find it by selectedTxHash
+            store.addTransaction(tx);
+          }
+          setResult({ kind: "tx", tx });
+          return;
+        }
+
+        setResult({ kind: "error", message: "Transaction not found on Bradbury." });
         return;
       }
 

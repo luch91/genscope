@@ -94,7 +94,8 @@ export interface AppState {
   totalTxCount: number;
   intelligentTxCount: number;
   activeValidators: Set<string>;
-  latestBlockNumber: number;   // actual chain head from eth_blockNumber
+  latestBlockNumber: number;   // actual chain head from eth_blockNumber (≈ lastSealedBlock)
+  verifiedBlockNumber: number; // lastVerifiedBlock from explorer stats API
   loadingOlder: boolean;       // true while fetching older blocks
 
   // actions
@@ -106,6 +107,7 @@ export interface AppState {
   setSyncStatus: (status: SyncStatus) => void;
   setNetworkStatus: (status: NetworkStatus) => void;
   setLatestBlockNumber: (n: number) => void;
+  setVerifiedBlockNumber: (n: number) => void;
   setLoadingOlder: (loading: boolean) => void;
   updateBlockTxDetails: (blockNumber: number, txs: GenLayerTransaction[]) => void;
 }

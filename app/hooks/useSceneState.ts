@@ -14,6 +14,7 @@ export const useSceneState = create<AppState>((set) => ({
   intelligentTxCount: 0,
   activeValidators: new Set<string>(),
   latestBlockNumber: 0,
+  verifiedBlockNumber: 0,
   loadingOlder: false,
 
   addBlock: (block: Block) => {
@@ -69,21 +70,30 @@ export const useSceneState = create<AppState>((set) => ({
     set({ latestBlockNumber: n });
   },
 
+  setVerifiedBlockNumber: (n: number) => {
+    set({ verifiedBlockNumber: n });
+  },
+
   setLoadingOlder: (loading: boolean) => {
     set({ loadingOlder: loading });
   },
 
   updateBlockTxDetails: (blockNumber: number, txs: GenLayerTransaction[]) => {
     set((state) => {
-      const newTxMap = { ...state.transactions };
-      txs.forEach((tx) => { newTxMap[tx.hash] = tx; });
+      // Deduplicate by hash (last write wins for metadata, keeps order stable)
+      const txMap = new Map<string, GenLayerTransaction>();
+      txs.forEach((tx) => txMap.set(tx.hash, tx));
+      const dedupedTxs = Array.from(txMap.values());
 
-      const hasIntelligent = txs.some((t) => t.isIntelligent);
-      const hasStandard = txs.some((t) => !t.isIntelligent);
+      const newTxMap = { ...state.transactions };
+      dedupedTxs.forEach((tx) => { newTxMap[tx.hash] = tx; });
+
+      const hasIntelligent = dedupedTxs.some((t) => t.isIntelligent);
+      const hasStandard = dedupedTxs.some((t) => !t.isIntelligent);
 
       const newBlocks = state.blocks.map((b) =>
         b.number === blockNumber
-          ? { ...b, txDetails: txs, hasIntelligent, hasStandard }
+          ? { ...b, txDetails: dedupedTxs, hasIntelligent, hasStandard }
           : b
       );
 
@@ -91,7 +101,7 @@ export const useSceneState = create<AppState>((set) => ({
       const intelligentCount = allTxs.filter((t) => t.isIntelligent).length;
 
       const newValidators = new Set(state.activeValidators);
-      txs.forEach((tx) => {
+      dedupedTxs.forEach((tx) => {
         tx.consumedValidators?.forEach((v) => newValidators.add(v));
         tx.roundData?.forEach((r) => r.roundValidators?.forEach((v) => newValidators.add(v)));
       });
