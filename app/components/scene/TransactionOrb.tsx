@@ -85,7 +85,7 @@ export default function TransactionOrb({
           document.body.style.cursor = "auto";
         }}
       >
-        <sphereGeometry args={[radius3d, 16, 16]} />
+        <sphereGeometry args={[radius3d, 8, 8]} />
         <meshStandardMaterial
           color={color}
           emissive={color}

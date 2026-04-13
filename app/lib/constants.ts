@@ -39,8 +39,8 @@ export const PULSE_SPEED = 1.5; // seconds per cycle
 export const CAMERA_TRANSITION_DURATION = 1.2; // seconds
 
 // Polling
-export const BLOCK_POLL_INTERVAL = 5000; // ms
-export const SYNC_POLL_INTERVAL = 10000; // ms
+export const BLOCK_POLL_INTERVAL = 2000;  // ms — fast enough for real-time feel
+export const SYNC_POLL_INTERVAL = 15000;  // ms
 
 // RPC — all calls go through the local Next.js proxy to avoid browser network issues
 export const RPC_URL = "/api/rpc";

@@ -1,6 +1,5 @@
 "use client";
 import { useSceneState } from "../../hooks/useSceneState";
-import { loadOlderBlocks } from "../../hooks/useBlocks";
 import StatusBadge from "./StatusBadge";
 import { truncateHash, truncateAddress } from "../../lib/parsers";
 import { formatDistanceToNow } from "date-fns";
@@ -9,24 +8,18 @@ import { formatDistanceToNow } from "date-fns";
 const HEADER_HEIGHT = 92;
 
 export default function LiveFeed() {
-  const { blocks, setSelectedTx, setSelectedBlock, loadingOlder } = useSceneState();
+  const feedTxs = useSceneState((s) => s.feedTxs);
+  const { setSelectedTx, setSelectedBlock } = useSceneState();
 
-  // Flatten all transactions across blocks, newest first, deduplicated by tx hash
-  const seen = new Set<string>();
-  const feedItems = blocks
-    .flatMap((b) =>
-      b.txDetails.map((tx) => ({
-        tx,
-        blockNumber: b.number,
-        timestamp: b.timestamp,
-      }))
-    )
-    .filter(({ tx }) => {
-      if (seen.has(tx.hash)) return false;
-      seen.add(tx.hash);
-      return true;
-    })
-    .slice(0, 80);
+  // feedTxs is already newest-first and deduplicated (managed by useLiveFeed + store)
+  const feedItems = feedTxs.map((tx) => ({
+    tx,
+    blockNumber: tx.blockNumber ?? null,
+    // Use GenLayer tx creation time — accurate, comes from gen_getTransactionReceipt
+    timestamp: tx.timestamps.Created
+      ? new Date(tx.timestamps.Created).getTime() / 1000
+      : null,
+  }));
 
   return (
     <div
@@ -159,7 +152,7 @@ export default function LiveFeed() {
                 <span style={{ color: "#2a2a4a", fontSize: 9 }}>
                   {timestamp
                     ? formatDistanceToNow(new Date(timestamp * 1000), { addSuffix: true })
-                    : ""}
+                    : "—"}
                 </span>
               </div>
             </div>
@@ -167,46 +160,20 @@ export default function LiveFeed() {
         )}
       </div>
 
-      {/* Footer: blocks loaded + load older button */}
+      {/* Footer: tx count */}
       <div
         style={{
           borderTop: "1px solid #1a1a2e",
-          padding: "8px 12px",
+          padding: "6px 12px",
           flexShrink: 0,
           background: "rgba(8,8,20,0.95)",
+          textAlign: "center",
+          color: "#333",
+          fontSize: 9,
+          fontFamily: "'JetBrains Mono', monospace",
         }}
       >
-        <div
-          style={{
-            color: "#333",
-            fontSize: 9,
-            fontFamily: "'JetBrains Mono', monospace",
-            marginBottom: 6,
-            textAlign: "center",
-          }}
-        >
-          {useSceneState.getState().blocks.length} blocks loaded
-        </div>
-        <button
-          onClick={() => loadOlderBlocks()}
-          disabled={loadingOlder}
-          style={{
-            width: "100%",
-            background: loadingOlder
-              ? "rgba(255,255,255,0.02)"
-              : "rgba(0,255,136,0.06)",
-            border: `1px solid ${loadingOlder ? "#1a1a2e" : "#00FF8822"}`,
-            borderRadius: 4,
-            color: loadingOlder ? "#444" : "#00FF88",
-            cursor: loadingOlder ? "not-allowed" : "pointer",
-            fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 10,
-            padding: "5px 0",
-            transition: "all 0.15s",
-          }}
-        >
-          {loadingOlder ? "Loading…" : "↓ Load older blocks"}
-        </button>
+        {feedTxs.length > 0 ? `${feedTxs.length} txs · live` : "connecting…"}
       </div>
     </div>
   );

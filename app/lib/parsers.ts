@@ -49,7 +49,7 @@ function normalizeTs(v: number | string | undefined | null): string {
  *
  * Returns null when input is absent, too short, or all-zero.
  */
-function extractGenLayerTxId(input: string | undefined): string | null {
+export function extractGenLayerTxId(input: string | undefined): string | null {
   if (!input) return null;
   const hex = input.startsWith("0x") ? input.slice(2) : input;
   // Need at least 4-byte selector (8 hex) + 32-byte arg (64 hex) = 72 hex chars

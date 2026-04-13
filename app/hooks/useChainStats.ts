@@ -3,7 +3,11 @@ import { useEffect } from "react";
 import { useSceneState } from "./useSceneState";
 import { SYNC_POLL_INTERVAL } from "../lib/constants";
 
-async function fetchStats(): Promise<{ lastSealedBlock: number; lastVerifiedBlock: number } | null> {
+async function fetchStats(): Promise<{
+  lastSealedBlock: number;
+  lastVerifiedBlock: number;
+  totalTransactions: number;
+} | null> {
   try {
     const res = await fetch("/api/stats");
     if (!res.ok) return null;
@@ -18,6 +22,7 @@ async function fetchStats(): Promise<{ lastSealedBlock: number; lastVerifiedBloc
 export function useChainStats() {
   const setLatestBlockNumber = useSceneState((s) => s.setLatestBlockNumber);
   const setVerifiedBlockNumber = useSceneState((s) => s.setVerifiedBlockNumber);
+  const setChainTxCount = useSceneState((s) => s.setChainTxCount);
 
   useEffect(() => {
     async function poll() {
@@ -25,11 +30,12 @@ export function useChainStats() {
       if (stats) {
         setLatestBlockNumber(stats.lastSealedBlock);
         setVerifiedBlockNumber(stats.lastVerifiedBlock);
+        setChainTxCount(stats.totalTransactions);
       }
     }
 
     poll();
     const interval = setInterval(poll, SYNC_POLL_INTERVAL);
     return () => clearInterval(interval);
-  }, [setLatestBlockNumber, setVerifiedBlockNumber]);
+  }, [setLatestBlockNumber, setVerifiedBlockNumber, setChainTxCount]);
 }

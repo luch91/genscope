@@ -5,13 +5,11 @@ import TransactionOrb from "./TransactionOrb";
 import { BLOCK_STEP } from "../../lib/constants";
 
 export default function BlockTower() {
-  const {
-    blocks,
-    selectedBlockNumber,
-    selectedTxHash,
-    setSelectedBlock,
-    setSelectedTx,
-  } = useSceneState();
+  // Targeted selectors — only re-render when these specific slices change
+  const blocks = useSceneState((s) => s.blocks);
+  const selectedBlockNumber = useSceneState((s) => s.selectedBlockNumber);
+  const selectedTxHash = useSceneState((s) => s.selectedTxHash);
+  const setSelectedTx = useSceneState((s) => s.setSelectedTx);
 
   return (
     <group>
@@ -25,13 +23,9 @@ export default function BlockTower() {
               block={block}
               index={index}
               isSelected={isSelected}
-              isExploded={isSelected}
-              onClick={() => {
-                setSelectedBlock(isSelected ? null : block.number);
-              }}
             />
 
-            {/* Transaction orbs when block is exploded */}
+            {/* Transaction orbs when block is selected */}
             {isSelected &&
               block.txDetails.map((tx, txIndex) => (
                 <TransactionOrb
@@ -59,7 +53,6 @@ export default function BlockTower() {
         />
       </mesh>
 
-      {/* Grid lines on ground */}
       <gridHelper
         args={[20, 20, "#00FF8822", "#00FF8811"]}
         position={[0, 0.06, 0]}

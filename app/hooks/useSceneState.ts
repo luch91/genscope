@@ -6,6 +6,7 @@ import { MAX_VISIBLE_BLOCKS } from "../lib/constants";
 export const useSceneState = create<AppState>((set) => ({
   blocks: [],
   transactions: {},
+  feedTxs: [],
   selectedBlockNumber: null,
   selectedTxHash: null,
   syncStatus: { blocksBehind: 0, synced: true },
@@ -15,7 +16,23 @@ export const useSceneState = create<AppState>((set) => ({
   activeValidators: new Set<string>(),
   latestBlockNumber: 0,
   verifiedBlockNumber: 0,
+  chainTxCount: 0,
   loadingOlder: false,
+
+  addFeedTx: (tx: GenLayerTransaction) => {
+    set((state) => {
+      // Deduplicate by hash; newest first; cap at 80 entries
+      if (state.feedTxs.some((t) => t.hash === tx.hash)) return state;
+      // Also keep in shared transactions map so TransactionPanel can find it
+      const newTxMap = state.transactions[tx.hash]
+        ? state.transactions
+        : { ...state.transactions, [tx.hash]: tx };
+      return {
+        feedTxs: [tx, ...state.feedTxs].slice(0, 80),
+        transactions: newTxMap,
+      };
+    });
+  },
 
   addBlock: (block: Block) => {
     set((state) => {
@@ -72,6 +89,10 @@ export const useSceneState = create<AppState>((set) => ({
 
   setVerifiedBlockNumber: (n: number) => {
     set({ verifiedBlockNumber: n });
+  },
+
+  setChainTxCount: (n: number) => {
+    set({ chainTxCount: n });
   },
 
   setLoadingOlder: (loading: boolean) => {

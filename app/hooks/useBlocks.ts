@@ -9,6 +9,8 @@ export function useBlocks() {
   const { addBlock, setNetworkStatus, setLatestBlockNumber } = useSceneState();
   const latestKnownRef = useRef<number>(0);
   const initializedRef = useRef(false);
+  const consecutiveFailuresRef = useRef(0);
+  const isPollingRef = useRef(false); // prevent concurrent poll calls
 
   useEffect(() => {
     let cancelled = false;
@@ -19,6 +21,7 @@ export function useBlocks() {
         const latest = await getLatestBlockNumber();
         latestKnownRef.current = latest;
         setLatestBlockNumber(latest);
+        consecutiveFailuresRef.current = 0;
 
         const promises: Promise<void>[] = [];
         for (let i = 0; i < INITIAL_BLOCK_FETCH; i++) {
@@ -38,10 +41,18 @@ export function useBlocks() {
     }
 
     async function pollNewBlocks() {
+      if (isPollingRef.current) return; // skip if previous poll still in flight
+      isPollingRef.current = true;
       try {
         const latest = await getLatestBlockNumber();
         setLatestBlockNumber(latest);
-        if (latest <= latestKnownRef.current) return;
+        consecutiveFailuresRef.current = 0;
+
+        if (latest <= latestKnownRef.current) {
+          // No new blocks — still live
+          setNetworkStatus("live");
+          return;
+        }
 
         setNetworkStatus("live");
         const toFetch: Promise<void>[] = [];
@@ -58,8 +69,17 @@ export function useBlocks() {
         await Promise.all(toFetch);
         latestKnownRef.current = latest;
       } catch (err) {
-        console.error("Block poll error:", err);
-        setNetworkStatus("reconnecting");
+        // Ignore intentional aborts (timeout or cleanup)
+        if (err instanceof Error && err.name === "AbortError") return;
+        consecutiveFailuresRef.current += 1;
+        // Only show reconnecting after 2 consecutive failures — single transient
+        // errors are common and should not alarm the user
+        if (consecutiveFailuresRef.current >= 2) {
+          console.error("Block poll error:", err);
+          setNetworkStatus("reconnecting");
+        }
+      } finally {
+        isPollingRef.current = false;
       }
     }
 

@@ -21,12 +21,20 @@ let _reqId = 1;
 export async function rpcCall<T = unknown>(
   method: string,
   params: unknown[],
+  signal?: AbortSignal,
 ): Promise<T> {
   const id = _reqId++;
+  // 10-second timeout per call — prevents hung requests from piling up
+  const timeout = AbortSignal.timeout(10_000);
+  const combined = signal
+    ? AbortSignal.any([signal, timeout])
+    : timeout;
+
   const res = await fetch(RPC_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", method, params, id }),
+    signal: combined,
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
   const json = await res.json();

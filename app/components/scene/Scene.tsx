@@ -11,8 +11,9 @@ export default function Scene() {
     <Canvas
       camera={{ position: [6, 4, 8], fov: 50 }}
       style={{ background: "#080810", width: "100%", height: "100%" }}
-      gl={{ antialias: true, alpha: false }}
-      dpr={[1, 2]}
+      gl={{ antialias: true, alpha: false, powerPreference: "high-performance" }}
+      dpr={[1, 1.5]}
+      performance={{ min: 0.5 }}
     >
       <color attach="background" args={["#080810"]} />
       <fog attach="fog" args={["#080810", 30, 80]} />
@@ -30,12 +31,11 @@ export default function Scene() {
       </Suspense>
 
       {/* Post-processing: Bloom for glowing elements */}
-      <EffectComposer>
+      <EffectComposer multisampling={0}>
         <Bloom
-          luminanceThreshold={0.4}
-          luminanceSmoothing={0.9}
-          intensity={0.8}
-          mipmapBlur
+          luminanceThreshold={0.5}
+          luminanceSmoothing={0.5}
+          intensity={0.5}
         />
       </EffectComposer>
     </Canvas>

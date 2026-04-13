@@ -38,10 +38,14 @@ export default function SceneCamera() {
 
   useFrame(() => {
     if (!controlsRef.current) return;
-    // Smooth camera transition
     const speed = 0.05;
-    controlsRef.current.target.lerp(targetRef.current, speed);
-    camera.position.lerp(positionRef.current, speed);
+    const targetDist = controlsRef.current.target.distanceTo(targetRef.current);
+    const posDist = camera.position.distanceTo(positionRef.current);
+    // Only lerp when not yet settled (saves GPU time when camera is idle)
+    if (targetDist > 0.001 || posDist > 0.001) {
+      controlsRef.current.target.lerp(targetRef.current, speed);
+      camera.position.lerp(positionRef.current, speed);
+    }
     controlsRef.current.update();
   });
 

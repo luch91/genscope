@@ -87,6 +87,7 @@ export interface SyncStatus {
 export interface AppState {
   blocks: Block[];
   transactions: Record<string, GenLayerTransaction>;
+  feedTxs: GenLayerTransaction[]; // real-time tx feed, newest first
   selectedBlockNumber: number | null;
   selectedTxHash: string | null;
   syncStatus: SyncStatus;
@@ -96,9 +97,11 @@ export interface AppState {
   activeValidators: Set<string>;
   latestBlockNumber: number;   // actual chain head from eth_blockNumber (≈ lastSealedBlock)
   verifiedBlockNumber: number; // lastVerifiedBlock from explorer stats API
+  chainTxCount: number;        // totalTransactions from explorer stats API (chain-wide)
   loadingOlder: boolean;       // true while fetching older blocks
 
   // actions
+  addFeedTx: (tx: GenLayerTransaction) => void;
   addBlock: (block: Block) => void;
   setBlocks: (blocks: Block[]) => void;
   addTransaction: (tx: GenLayerTransaction) => void;
@@ -108,6 +111,7 @@ export interface AppState {
   setNetworkStatus: (status: NetworkStatus) => void;
   setLatestBlockNumber: (n: number) => void;
   setVerifiedBlockNumber: (n: number) => void;
+  setChainTxCount: (n: number) => void;
   setLoadingOlder: (loading: boolean) => void;
   updateBlockTxDetails: (blockNumber: number, txs: GenLayerTransaction[]) => void;
 }

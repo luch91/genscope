@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState, useEffect, useMemo } from "react";
+import { useRef, useState, useEffect, memo } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Html } from "@react-three/drei";
 import * as THREE from "three";
@@ -13,15 +13,12 @@ import {
   GLOW_DURATION,
 } from "../../lib/constants";
 import { getBlockColorType } from "../../lib/classifiers";
+import { useSceneState } from "../../hooks/useSceneState";
 import { formatDistanceToNow } from "date-fns";
 
-interface BlockProps {
-  block: BlockType;
-  index: number; // 0 = newest (top)
-  isSelected: boolean;
-  isExploded: boolean;
-  onClick: () => void;
-}
+// Shared geometry — created once, reused by every Block instance
+const SHARED_GEOMETRY = new THREE.BoxGeometry(BLOCK_WIDTH, BLOCK_HEIGHT, BLOCK_DEPTH);
+const SHARED_EDGES = new THREE.EdgesGeometry(SHARED_GEOMETRY);
 
 const COLOR_MAP = {
   empty: COLORS.blockEmpty,
@@ -37,13 +34,15 @@ const GLOW_MAP = {
   mixed: COLORS.neonGreen,
 };
 
-export default function Block({
-  block,
-  index,
-  isSelected,
-  isExploded,
-  onClick,
-}: BlockProps) {
+interface BlockProps {
+  block: BlockType;
+  index: number; // 0 = newest (top)
+  isSelected: boolean;
+}
+
+function Block({ block, index, isSelected }: BlockProps) {
+  const setSelectedBlock = useSceneState((s) => s.setSelectedBlock);
+
   const meshRef = useRef<THREE.Mesh>(null);
   const edgesRef = useRef<THREE.LineSegments>(null);
   const [hovered, setHovered] = useState(false);
@@ -51,6 +50,8 @@ export default function Block({
   const [glowing, setGlowing] = useState(false);
   const bounceStartRef = useRef(0);
   const isNewRef = useRef(true);
+  // Skip useFrame work when fully settled
+  const needsUpdateRef = useRef(true);
 
   const colorType = getBlockColorType(
     block.hasIntelligent,
@@ -60,8 +61,6 @@ export default function Block({
 
   const baseColor = COLOR_MAP[colorType];
   const glowColor = GLOW_MAP[colorType];
-
-  // Target Y position
   const targetY = index * -BLOCK_STEP;
 
   // Animate new block dropping in
@@ -76,8 +75,15 @@ export default function Block({
     }
   }, [index]);
 
+  // Wake up useFrame whenever animated state changes
+  useEffect(() => {
+    needsUpdateRef.current = true;
+  }, [bouncing, hovered, isSelected, glowing, targetY]);
+
   useFrame(() => {
     if (!meshRef.current) return;
+    // Skip work when fully settled — major perf gain with 100 blocks
+    if (!needsUpdateRef.current) return;
 
     const now = performance.now();
     let y = targetY;
@@ -88,54 +94,47 @@ export default function Block({
       y = targetY + bounce * 0.8;
     }
 
-    // Smooth lerp to target
-    meshRef.current.position.y +=
-      (y - meshRef.current.position.y) * 0.15;
+    // Position lerp
+    const posDiff = y - meshRef.current.position.y;
+    meshRef.current.position.y += posDiff * 0.15;
 
-    // Keep edge glow in sync with mesh position
+    // Keep edges in sync
     if (edgesRef.current) {
       edgesRef.current.position.y = meshRef.current.position.y;
     }
 
-    // Hover scale
+    // Scale lerp
     const targetScale = hovered || isSelected ? 1.04 : 1.0;
-    meshRef.current.scale.x +=
-      (targetScale - meshRef.current.scale.x) * 0.1;
-    meshRef.current.scale.z +=
-      (targetScale - meshRef.current.scale.z) * 0.1;
+    meshRef.current.scale.x += (targetScale - meshRef.current.scale.x) * 0.1;
+    meshRef.current.scale.z += (targetScale - meshRef.current.scale.z) * 0.1;
 
-    // Glow edge opacity
+    // Edge opacity lerp
     if (edgesRef.current) {
       const mat = edgesRef.current.material as THREE.LineBasicMaterial;
-      const targetOpacity = glowing
-        ? 1.0
-        : isSelected || hovered
-        ? 0.9
-        : 0.35;
+      const targetOpacity = glowing ? 1.0 : isSelected || hovered ? 0.9 : 0.35;
       mat.opacity += (targetOpacity - mat.opacity) * 0.08;
+
+      // Mark settled when all lerps have converged
+      const posSettled = Math.abs(posDiff) < 0.001;
+      const scaleSettled = Math.abs(meshRef.current.scale.x - targetScale) < 0.001;
+      const opacitySettled = Math.abs(mat.opacity - targetOpacity) < 0.005;
+      if (posSettled && scaleSettled && opacitySettled && !bouncing && !hovered && !isSelected && !glowing) {
+        needsUpdateRef.current = false;
+      }
     }
   });
 
-  // Initialize position above scene for drop animation
   const initialY = index === 0 ? targetY + 5 : targetY;
-
-  const geometry = useMemo(
-    () => new THREE.BoxGeometry(BLOCK_WIDTH, BLOCK_HEIGHT, BLOCK_DEPTH),
-    []
-  );
-  const edgesGeometry = useMemo(
-    () => new THREE.EdgesGeometry(geometry),
-    [geometry]
-  );
 
   return (
     <group>
       <mesh
         ref={meshRef}
         position={[0, initialY, 0]}
+        geometry={SHARED_GEOMETRY}
         onClick={(e) => {
           e.stopPropagation();
-          onClick();
+          setSelectedBlock(isSelected ? null : block.number);
         }}
         onPointerOver={(e) => {
           e.stopPropagation();
@@ -146,12 +145,11 @@ export default function Block({
           setHovered(false);
           document.body.style.cursor = "auto";
         }}
-        geometry={geometry}
       >
         <meshStandardMaterial
           color={baseColor}
           transparent
-          opacity={isExploded ? 0.3 : 0.85}
+          opacity={isSelected ? 0.3 : 0.85}
           roughness={0.2}
           metalness={0.6}
           emissive={glowing || isSelected ? glowColor : baseColor}
@@ -163,7 +161,7 @@ export default function Block({
       <lineSegments
         ref={edgesRef}
         position={[0, initialY, 0]}
-        geometry={edgesGeometry}
+        geometry={SHARED_EDGES}
       >
         <lineBasicMaterial
           color={glowColor}
@@ -188,6 +186,8 @@ export default function Block({
     </group>
   );
 }
+
+export default memo(Block);
 
 function BlockTooltip({
   block,

@@ -27,6 +27,7 @@ export default function StatsBar() {
     syncStatus,
     latestBlockNumber,
     verifiedBlockNumber,
+    chainTxCount,
     setSelectedBlock,
     setSelectedTx,
   } = useSceneState();
@@ -107,24 +108,12 @@ export default function StatsBar() {
       >
         {/* Logo */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginRight: 12, flexShrink: 0 }}>
-          <div
-            style={{
-              width: 26,
-              height: 26,
-              background: "linear-gradient(135deg, #00FF88, #FFD700)",
-              borderRadius: 5,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 13,
-              fontWeight: 900,
-              color: "#080810",
-              fontFamily: "'JetBrains Mono', monospace",
-              flexShrink: 0,
-            }}
-          >
-            G
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="https://pbs.twimg.com/profile_images/2011221321754034176/AaBmFyfD_400x400.jpg"
+            alt="GenLayer"
+            style={{ width: 26, height: 26, borderRadius: 5, flexShrink: 0, display: "block" }}
+          />
           <span
             style={{
               color: "#fff",
@@ -132,9 +121,12 @@ export default function StatsBar() {
               fontSize: 13,
               fontFamily: "'JetBrains Mono', monospace",
               letterSpacing: "0.05em",
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
             }}
           >
-            GenScope
+            <span style={{ fontSize: 11, lineHeight: 1 }}>🔍</span>GenScope
           </span>
         </div>
 
@@ -159,10 +151,10 @@ export default function StatsBar() {
         />
         <Divider />
 
-        {/* INDEXED TXS — clickable, shows all indexed transactions */}
+        {/* TRANSACTIONS — chain-wide total from explorer stats API */}
         <ClickableStatItem
-          label="INDEXED TXS"
-          value={totalTxCount.toLocaleString()}
+          label="TRANSACTIONS"
+          value={chainTxCount > 0 ? chainTxCount.toLocaleString() : totalTxCount.toLocaleString()}
           accent="#aaa"
           active={openPanel === "txs"}
           onClick={() => togglePanel("txs")}
@@ -274,7 +266,7 @@ export default function StatsBar() {
       {/* INDEXED TXS panel — list of all indexed transactions */}
       {openPanel === "txs" && (
         <DropPanel onClose={() => setOpenPanel(null)} wide>
-          <PanelHeader icon="◉" title={`${totalTxCount.toLocaleString()} Indexed Transactions`} color="#aaa" />
+          <PanelHeader icon="◉" title={`${(chainTxCount > 0 ? chainTxCount : totalTxCount).toLocaleString()} Transactions`} color="#aaa" />
           <div
             style={{
               maxHeight: 320,
