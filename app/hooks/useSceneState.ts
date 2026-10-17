@@ -5,6 +5,7 @@ import { MAX_VISIBLE_BLOCKS } from "../lib/constants";
 
 export const useSceneState = create<AppState>((set) => ({
   blocks: [],
+  blockCache: {},
   transactions: {},
   feedTxs: [],
   selectedBlockNumber: null,
@@ -36,17 +37,44 @@ export const useSceneState = create<AppState>((set) => ({
 
   addBlock: (block: Block) => {
     set((state) => {
-      if (state.blocks.find((b) => b.number === block.number)) return state;
+      const blockCache = { ...state.blockCache, [block.number]: block };
+      if (state.blocks.find((b) => b.number === block.number)) {
+        return { blockCache };
+      }
       const newBlocks = [block, ...state.blocks]
         .sort((a, b) => b.number - a.number)
         .slice(0, MAX_VISIBLE_BLOCKS);
-      return { blocks: newBlocks };
+      return { blocks: newBlocks, blockCache };
+    });
+  },
+
+  addOlderBlocks: (olderBlocks: Block[]) => {
+    set((state) => {
+      const blockCache = { ...state.blockCache };
+      for (const block of olderBlocks) blockCache[block.number] = block;
+
+      // Shift the rendered window backwards while retaining all fetched blocks
+      // in blockCache for search and forward navigation.
+      const combined = [...state.blocks, ...olderBlocks];
+      const unique = Array.from(
+        new Map(combined.map((block) => [block.number, block])).values(),
+      ).sort((a, b) => b.number - a.number);
+      return {
+        blocks: unique.slice(Math.max(0, unique.length - MAX_VISIBLE_BLOCKS)),
+        blockCache,
+      };
     });
   },
 
   setBlocks: (blocks: Block[]) => {
     const sorted = [...blocks].sort((a, b) => b.number - a.number).slice(0, MAX_VISIBLE_BLOCKS);
-    set({ blocks: sorted });
+    set((state) => ({
+      blocks: sorted,
+      blockCache: {
+        ...state.blockCache,
+        ...Object.fromEntries(blocks.map((block) => [block.number, block])),
+      },
+    }));
   },
 
   addTransaction: (tx: GenLayerTransaction) => {
@@ -129,6 +157,10 @@ export const useSceneState = create<AppState>((set) => ({
 
       return {
         blocks: newBlocks,
+        blockCache: newBlocks.reduce(
+          (cache, block) => ({ ...cache, [block.number]: block }),
+          state.blockCache,
+        ),
         transactions: newTxMap,
         totalTxCount: allTxs.length,
         intelligentTxCount: intelligentCount,

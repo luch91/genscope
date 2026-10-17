@@ -1,197 +1,197 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// ─── Network config ───────────────────────────────────────────────────────────
+const NETWORKS = {
+  "testnet-bradbury": { rpcUrl: "https://rpc-bradbury.genlayer.com", consensus: "0x0112Bf6e83497965A5fdD6Dad1E447a6E004271D", studio: false },
+  "testnet-asimov": { rpcUrl: "https://rpc.asimov.genlayer.com", consensus: "0x6CAFF6769d70824745AD895663409DC70aB5B28E", studio: false },
+  studionet: { rpcUrl: "https://studio.genlayer.com/api", consensus: "0xb7278A61aa25c888815aFC32Ad3cC52fF24fE575", studio: true },
+} as const;
 
-const RPC_URLS: Record<string, string> = {
-  "testnet-bradbury": "https://rpc-bradbury.genlayer.com",
-  "testnet-asimov":   "https://rpc.asimov.genlayer.com",
-  studionet:          "https://studio.genlayer.com/api",
-};
-
-const CONSENSUS_CONTRACTS: Record<string, string> = {
-  "testnet-bradbury": "0x0112Bf6e83497965A5fdD6Dad1E447a6E004271D",
-  "testnet-asimov":   "0x6CAFF6769d70824745AD895663409DC70aB5B28E",
-  studionet:          "0xb7278A61aa25c888815aFC32Ad3cC52fF24fE575",
-};
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-// keccak256('NewTransaction(bytes32,address,address)')
-const NEW_TX_TOPIC =
-  "0xdab9102861c7483a187584d6371d88316f005af507982ccf95c110879f3ed5a5";
-
-// keccak256('ghostContracts(address)')[0:4]
+const NEW_TX_TOPIC = "0xdab9102861c7483a187584d6371d88316f005af507982ccf95c110879f3ed5a5";
 const GHOST_SELECTOR = "0x7440c21b";
+const CHUNK_SIZE = 10_000;
+const CHUNKS_PER_PAGE = 4;
+const MAX_CANDIDATES = 10;
+const MAX_SUBREQUESTS = 45;
+const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS" };
 
-const CHUNK_SIZE = 10_000;  // node-enforced max block range per eth_getLogs call
-const MAX_SCAN   = 500_000; // total window (≤50 parallel chunks)
-const MAX_CANDIDATES = 100;
+type NetworkName = keyof typeof NETWORKS;
+type ContractEntry = { address: string; methods: string[]; blockNumber: number; network: string };
 
-// ─── CORS headers (all responses) ────────────────────────────────────────────
-
-const CORS = {
-  "Access-Control-Allow-Origin":  "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
-};
+class RequestBudget {
+  used = 0;
+  take() {
+    if (this.used >= MAX_SUBREQUESTS) throw new Error("SUBREQUEST_BUDGET_EXHAUSTED");
+    this.used += 1;
+  }
+}
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: CORS });
 }
 
-// ─── RPC helper ───────────────────────────────────────────────────────────────
-
-async function rpc(
-  rpcUrl: string,
-  method: string,
-  params: unknown[],
-): Promise<unknown> {
-  const res = await fetch(rpcUrl, {
-    method:  "POST",
-    headers: { "Content-Type": "application/json" },
-    body:    JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-    signal:  AbortSignal.timeout(15_000),
+async function rpc(rpcUrl: string, method: string, params: unknown[], budget: RequestBudget): Promise<unknown> {
+  budget.take();
+  const response = await fetch(rpcUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: budget.used, method, params }),
+    signal: AbortSignal.timeout(8_000),
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const json = await res.json();
-  if (json.error) throw new Error(json.error.message ?? "RPC error");
+  const length = Number(response.headers.get("content-length") ?? "0");
+  if (length > 2 * 1024 * 1024) throw new Error("RPC_RESPONSE_TOO_LARGE");
+  if (!response.ok) throw new Error(`RPC_HTTP_${response.status}`);
+  const text = await response.text();
+  if (new TextEncoder().encode(text).byteLength > 2 * 1024 * 1024) throw new Error("RPC_RESPONSE_TOO_LARGE");
+  const json = JSON.parse(text) as { result?: unknown; error?: { message?: string } };
+  if (json.error) throw new Error(json.error.message ?? "RPC_ERROR");
   return json.result;
 }
 
-// ─── IC helpers ───────────────────────────────────────────────────────────────
+function parseCursor(value: string | null): number | null {
+  if (value === null) return null;
+  if (!/^\d{1,12}$/.test(value)) throw new Error("INVALID_CURSOR");
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error("INVALID_CURSOR");
+  return parsed;
+}
 
-function extractAddress(paddedTopic: string): string {
-  return "0x" + paddedTopic.slice(26).toLowerCase();
+function extractAddress(topic: string): string | null {
+  return /^0x[0-9a-fA-F]{64}$/.test(topic) ? `0x${topic.slice(-40).toLowerCase()}` : null;
 }
 
 async function getContractMethods(
-  rpcUrl: string,
-  addr: string,
+  network: (typeof NETWORKS)[NetworkName],
+  address: string,
+  budget: RequestBudget,
 ): Promise<string[] | null> {
   try {
-    const schema = (await rpc(rpcUrl, "gen_getContractSchema", [addr])) as {
-      methods?: Record<string, unknown>;
-    };
-    return schema?.methods ? Object.keys(schema.methods) : null;
+    // Bradbury/Asimov accept {code}, not an address. Fetching code first mirrors current genlayer-js.
+    const schema = network.studio
+      ? await rpc(network.rpcUrl, "gen_getContractSchema", [address], budget)
+      : await rpc(network.rpcUrl, "gen_getContractSchema", [{
+          code: await rpc(network.rpcUrl, "gen_getContractCode", [{ address }], budget),
+        }], budget);
+    if (!schema || typeof schema !== "object" || Array.isArray(schema)) return null;
+    const methods = (schema as Record<string, unknown>).methods;
+    return methods && typeof methods === "object" && !Array.isArray(methods) ? Object.keys(methods) : null;
   } catch {
     return null;
   }
 }
 
 async function isGhostContract(
-  rpcUrl: string,
-  consensusAddr: string,
-  addr: string,
+  network: (typeof NETWORKS)[NetworkName],
+  address: string,
+  budget: RequestBudget,
 ): Promise<boolean> {
   try {
-    const calldata =
-      GHOST_SELECTOR + addr.slice(2).toLowerCase().padStart(64, "0");
-    const result = (await rpc(rpcUrl, "eth_call", [
-      { to: consensusAddr, data: calldata },
-      "latest",
-    ])) as string;
-    return BigInt(result) === BigInt(1);
+    const data = GHOST_SELECTOR + address.slice(2).padStart(64, "0");
+    const result = await rpc(network.rpcUrl, "eth_call", [{ to: network.consensus, data }, "latest"], budget);
+    return typeof result === "string" && BigInt(result) === BigInt(1);
   } catch {
     return false;
   }
 }
 
-// ─── Route handler ────────────────────────────────────────────────────────────
-
-export type ContractEntry = {
-  address:     string;
-  methods:     string[];
-  blockNumber: number;
-  network:     string;
-};
-
-export async function GET(req: NextRequest) {
-  const network = req.nextUrl.searchParams.get("network") ?? "testnet-bradbury";
-  const rpcUrl      = RPC_URLS[network];
-  const consensusAddr = CONSENSUS_CONTRACTS[network];
-
-  if (!rpcUrl || !consensusAddr) {
-    return NextResponse.json(
-      { error: `Unknown network: ${network}` },
-      { status: 400, headers: CORS },
-    );
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>,
+): Promise<PromiseSettledResult<R>[]> {
+  const results: PromiseSettledResult<R>[] = new Array(items.length);
+  let index = 0;
+  async function worker() {
+    while (index < items.length) {
+      const current = index++;
+      try {
+        results[current] = { status: "fulfilled", value: await mapper(items[current]) };
+      } catch (reason) {
+        results[current] = { status: "rejected", reason };
+      }
+    }
   }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
+  return results;
+}
+
+export async function GET(request: NextRequest) {
+  const networkName = request.nextUrl.searchParams.get("network") ?? "testnet-bradbury";
+  if (!(networkName in NETWORKS)) {
+    return NextResponse.json({ error: "Unsupported network" }, { status: 400, headers: CORS });
+  }
+  const network = NETWORKS[networkName as NetworkName];
+  const budget = new RequestBudget();
 
   try {
-    // 1. Latest block — bounds the scan window
-    const latestHex = (await rpc(rpcUrl, "eth_blockNumber", [])) as string;
-    const latest = parseInt(latestHex, 16);
-
-    // 2. Build 10,000-block chunks over [scanFrom, latest]
-    //    Young chains (< MAX_SCAN blocks) are scanned from block 0 — full history
-    const scanFrom = Math.max(0, latest - MAX_SCAN);
-    const chunks: [number, number][] = [];
-    for (let start = scanFrom; start <= latest; start += CHUNK_SIZE) {
-      chunks.push([start, Math.min(start + CHUNK_SIZE - 1, latest)]);
+    const cursor = parseCursor(request.nextUrl.searchParams.get("cursor"));
+    const latestHex = await rpc(network.rpcUrl, "eth_blockNumber", [], budget);
+    if (typeof latestHex !== "string" || !/^0x[0-9a-f]+$/i.test(latestHex)) throw new Error("INVALID_LATEST_BLOCK");
+    const latest = Number.parseInt(latestHex, 16);
+    const toBlock = Math.min(cursor ?? latest, latest);
+    const fromBlock = Math.max(0, toBlock - CHUNK_SIZE * CHUNKS_PER_PAGE + 1);
+    const chunks: Array<[number, number]> = [];
+    for (let start = fromBlock; start <= toBlock; start += CHUNK_SIZE) {
+      chunks.push([start, Math.min(start + CHUNK_SIZE - 1, toBlock)]);
     }
 
-    // 3. Fetch all chunks in parallel — each within the 10,000-block node limit
-    const chunkResults = await Promise.allSettled(
-      chunks.map(([from, to]) =>
-        rpc(rpcUrl, "eth_getLogs", [
-          {
-            address:   consensusAddr,
-            topics:    [NEW_TX_TOPIC],
-            fromBlock: "0x" + from.toString(16),
-            toBlock:   "0x" + to.toString(16),
-          },
-        ]),
-      ),
-    );
+    const logPages = await mapWithConcurrency(chunks, 2, ([from, to]) => rpc(network.rpcUrl, "eth_getLogs", [{
+      address: network.consensus,
+      topics: [NEW_TX_TOPIC],
+      fromBlock: `0x${from.toString(16)}`,
+      toBlock: `0x${to.toString(16)}`,
+    }], budget));
 
-    // 4. Flatten and deduplicate — keep earliest block seen per recipient
     const seen = new Map<string, number>();
-    for (const result of chunkResults) {
-      if (result.status !== "fulfilled") continue;
-      const logs = result.value as Array<{
-        topics: string[];
-        blockNumber: string;
-      }>;
-      for (const log of logs) {
-        if (log.topics.length < 3) continue;
-        const addr  = extractAddress(log.topics[2]);
-        const block = parseInt(log.blockNumber, 16);
-        const prev  = seen.get(addr);
-        if (prev === undefined || block < prev) seen.set(addr, block);
+    let failedChunks = 0;
+    for (const page of logPages) {
+      if (page.status === "rejected" || !Array.isArray(page.value)) {
+        failedChunks += 1;
+        continue;
+      }
+      for (const rawLog of page.value) {
+        if (!rawLog || typeof rawLog !== "object" || Array.isArray(rawLog)) continue;
+        const log = rawLog as { topics?: unknown; blockNumber?: unknown };
+        if (!Array.isArray(log.topics) || typeof log.topics[2] !== "string" || typeof log.blockNumber !== "string") continue;
+        const address = extractAddress(log.topics[2]);
+        const blockNumber = Number.parseInt(log.blockNumber, 16);
+        if (!address || !Number.isSafeInteger(blockNumber)) continue;
+        const previous = seen.get(address);
+        if (previous === undefined || blockNumber < previous) seen.set(address, blockNumber);
       }
     }
 
     const candidates = Array.from(seen.entries()).slice(0, MAX_CANDIDATES);
-
-    // 5. Confirm ICs and fetch schemas in parallel
-    const icResults = await Promise.allSettled(
-      candidates.map(async ([addr, blockNumber]) => {
-        const methods = await getContractMethods(rpcUrl, addr);
-        if (methods !== null) return { address: addr, methods, blockNumber, network };
-        const isIC = await isGhostContract(rpcUrl, consensusAddr, addr);
-        if (!isIC) return null;
-        return { address: addr, methods: [], blockNumber, network };
-      }),
-    );
-
-    const contracts: ContractEntry[] = icResults
-      .filter(
-        (r): r is PromiseFulfilledResult<ContractEntry> =>
-          r.status === "fulfilled" && r.value !== null,
-      )
-      .map((r) => r.value)
-      .sort((a, b) => b.blockNumber - a.blockNumber);
-
-    return NextResponse.json(contracts, {
-      headers: {
-        ...CORS,
-        "Cache-Control": "s-maxage=60, stale-while-revalidate=30",
-      },
+    const discovered = await mapWithConcurrency(candidates, 3, async ([address, blockNumber]) => {
+      const methods = await getContractMethods(network, address, budget);
+      if (methods) return { address, methods, blockNumber, network: networkName };
+      return await isGhostContract(network, address, budget)
+        ? { address, methods: [], blockNumber, network: networkName }
+        : null;
     });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
+    const contracts: ContractEntry[] = discovered
+      .filter((item): item is PromiseFulfilledResult<ContractEntry> => item.status === "fulfilled" && item.value !== null)
+      .map((item) => item.value)
+      .sort((a, b) => b.blockNumber - a.blockNumber);
+    const nextCursor = fromBlock > 0 ? fromBlock - 1 : null;
+    const candidateFailures = discovered.filter((item) => item.status === "rejected").length;
+    const partial = failedChunks > 0 || candidateFailures > 0;
+
+    return NextResponse.json({
+      contracts,
+      pagination: { fromBlock, toBlock, nextCursor, complete: nextCursor === null && !partial },
+      partial,
+      failures: { logChunks: failedChunks, candidates: candidateFailures },
+      budget: { used: budget.used, limit: MAX_SUBREQUESTS },
+    }, {
+      headers: { ...CORS, "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" },
+    });
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "UNKNOWN_ERROR";
+    const status = code === "INVALID_CURSOR" ? 400 : 502;
+    console.warn(JSON.stringify({ event: "contract_discovery_failed", network: networkName, code, subrequests: budget.used }));
     return NextResponse.json(
-      { error: message },
-      { status: 502, headers: CORS },
+      { error: code, partial: true, budget: { used: budget.used, limit: MAX_SUBREQUESTS } },
+      { status, headers: CORS },
     );
   }
 }

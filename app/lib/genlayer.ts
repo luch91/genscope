@@ -17,11 +17,33 @@ import { RPC_URL } from "./constants";
 // ─── Core RPC helper ──────────────────────────────────────────────────────────
 
 let _reqId = 1;
+const inFlight = new Map<string, Promise<unknown>>();
+const recent = new Map<string, { expiresAt: number; value: unknown }>();
 
 export async function rpcCall<T = unknown>(
   method: string,
   params: unknown[],
   signal?: AbortSignal,
+): Promise<T> {
+  const key = JSON.stringify([method, params]);
+  const cached = recent.get(key);
+  if (!signal && cached && cached.expiresAt > Date.now()) return cached.value as T;
+  if (!signal && inFlight.has(key)) return inFlight.get(key) as Promise<T>;
+
+  const operation = executeRpc<T>(method, params, signal, key);
+  if (!signal) inFlight.set(key, operation);
+  try {
+    return await operation;
+  } finally {
+    if (!signal) inFlight.delete(key);
+  }
+}
+
+async function executeRpc<T>(
+  method: string,
+  params: unknown[],
+  signal: AbortSignal | undefined,
+  cacheKey: string,
 ): Promise<T> {
   const id = _reqId++;
   // 10-second timeout per call — prevents hung requests from piling up
@@ -37,9 +59,12 @@ export async function rpcCall<T = unknown>(
     signal: combined,
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-  const json = await res.json();
+  const json = await res.json() as { error?: { message?: string }; result?: T };
   if (json.error) throw new Error(json.error.message ?? JSON.stringify(json.error));
-  return json.result as T;
+  const result = json.result as T;
+  const ttl = method === "eth_blockNumber" ? 1_500 : method === "gen_syncing" ? 10_000 : 0;
+  if (!signal && ttl > 0) recent.set(cacheKey, { expiresAt: Date.now() + ttl, value: result });
+  return result;
 }
 
 // ─── Block helpers ────────────────────────────────────────────────────────────

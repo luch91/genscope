@@ -47,7 +47,7 @@ export default function SearchBar() {
   const inputRef = useRef<HTMLInputElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  const { blocks, transactions, setSelectedBlock, setSelectedTx } = useSceneState();
+  const { blocks, blockCache, transactions, setSelectedBlock, setSelectedTx } = useSceneState();
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -72,19 +72,13 @@ export default function SearchBar() {
       if (detected.kind === "block") {
         const num = detected.blockNumber!;
         // Check store first
-        const cached = blocks.find((b) => b.number === num);
+        const cached = blockCache[num] ?? blocks.find((b) => b.number === num);
         if (cached) {
           setResult({ kind: "block", block: cached });
         } else {
-          const fetched = await fetchAndAddBlock(num);
-          if (fetched !== null) {
-            // Block was added to store; grab it
-            const fresh = useSceneState.getState().blocks.find((b) => b.number === num);
-            if (fresh) {
-              setResult({ kind: "block", block: fresh });
-            } else {
-              setResult({ kind: "error", message: `Block #${num} not found` });
-            }
+          const fetchedBlock = await fetchAndAddBlock(num);
+          if (fetchedBlock !== null) {
+            setResult({ kind: "block", block: fetchedBlock });
           } else {
             setResult({ kind: "error", message: `Block #${num} not found on chain` });
           }
@@ -167,7 +161,7 @@ export default function SearchBar() {
     } finally {
       setLoading(false);
     }
-  }, [blocks, transactions]);
+  }, [blockCache, blocks, transactions]);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter") runSearch(query);

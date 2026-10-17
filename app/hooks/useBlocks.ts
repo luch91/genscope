@@ -11,6 +11,7 @@ export function useBlocks() {
   const initializedRef = useRef(false);
   const consecutiveFailuresRef = useRef(0);
   const isPollingRef = useRef(false); // prevent concurrent poll calls
+  const nextPollAllowedRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -41,12 +42,15 @@ export function useBlocks() {
     }
 
     async function pollNewBlocks() {
+      if (document.visibilityState === "hidden") return;
+      if (Date.now() < nextPollAllowedRef.current) return;
       if (isPollingRef.current) return; // skip if previous poll still in flight
       isPollingRef.current = true;
       try {
         const latest = await getLatestBlockNumber();
         setLatestBlockNumber(latest);
         consecutiveFailuresRef.current = 0;
+        nextPollAllowedRef.current = 0;
 
         if (latest <= latestKnownRef.current) {
           // No new blocks — still live
@@ -72,6 +76,10 @@ export function useBlocks() {
         // Ignore intentional aborts (timeout or cleanup)
         if (err instanceof Error && err.name === "AbortError") return;
         consecutiveFailuresRef.current += 1;
+        nextPollAllowedRef.current = Date.now() + Math.min(
+          30_000,
+          BLOCK_POLL_INTERVAL * 2 ** consecutiveFailuresRef.current,
+        );
         // Only show reconnecting after 2 consecutive failures — single transient
         // errors are common and should not alarm the user
         if (consecutiveFailuresRef.current >= 2) {
@@ -102,7 +110,7 @@ export function useBlocks() {
  * Fetches OLDER_BLOCKS_FETCH blocks before the oldest block currently in the store.
  */
 export async function loadOlderBlocks(): Promise<void> {
-  const { blocks, addBlock, setLoadingOlder } = useSceneState.getState();
+  const { blocks, addOlderBlocks, setLoadingOlder } = useSceneState.getState();
   if (blocks.length === 0) return;
 
   const oldestNumber = Math.min(...blocks.map((b) => b.number));
@@ -110,17 +118,20 @@ export async function loadOlderBlocks(): Promise<void> {
 
   setLoadingOlder(true);
   try {
-    const promises: Promise<void>[] = [];
+    const promises: Promise<ReturnType<typeof parseBlock> | null>[] = [];
     for (let i = 1; i <= OLDER_BLOCKS_FETCH; i++) {
       const blockNum = oldestNumber - i;
       if (blockNum < 0) break;
       promises.push(
         getBlockByNumber(blockNum, true)
-          .then((raw) => { if (raw) addBlock(parseBlock(raw)); })
-          .catch(() => {})
+          .then((raw) => (raw ? parseBlock(raw) : null))
+          .catch(() => null)
       );
     }
-    await Promise.all(promises);
+    const olderBlocks = (await Promise.all(promises)).filter(
+      (block): block is ReturnType<typeof parseBlock> => block !== null,
+    );
+    if (olderBlocks.length > 0) addOlderBlocks(olderBlocks);
   } finally {
     setLoadingOlder(false);
   }
@@ -130,13 +141,13 @@ export async function loadOlderBlocks(): Promise<void> {
  * Fetch a single block by number and add to store.
  * Returns the block number if found, null if not.
  */
-export async function fetchAndAddBlock(blockNumber: number): Promise<number | null> {
+export async function fetchAndAddBlock(blockNumber: number): Promise<ReturnType<typeof parseBlock> | null> {
   try {
     const raw = await getBlockByNumber(blockNumber, true);
     if (!raw) return null;
     const block = parseBlock(raw);
     useSceneState.getState().addBlock(block);
-    return block.number;
+    return block;
   } catch {
     return null;
   }

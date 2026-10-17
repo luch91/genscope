@@ -86,6 +86,7 @@ export interface SyncStatus {
 
 export interface AppState {
   blocks: Block[];
+  blockCache: Record<number, Block>; // fetched history, independent of render window
   transactions: Record<string, GenLayerTransaction>;
   feedTxs: GenLayerTransaction[]; // real-time tx feed, newest first
   selectedBlockNumber: number | null;
@@ -103,6 +104,7 @@ export interface AppState {
   // actions
   addFeedTx: (tx: GenLayerTransaction) => void;
   addBlock: (block: Block) => void;
+  addOlderBlocks: (blocks: Block[]) => void;
   setBlocks: (blocks: Block[]) => void;
   addTransaction: (tx: GenLayerTransaction) => void;
   setSelectedBlock: (num: number | null) => void;

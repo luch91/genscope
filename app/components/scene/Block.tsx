@@ -67,11 +67,20 @@ function Block({ block, index, isSelected }: BlockProps) {
   useEffect(() => {
     if (isNewRef.current && index === 0) {
       isNewRef.current = false;
-      setBouncing(true);
-      setGlowing(true);
-      bounceStartRef.current = performance.now();
-      setTimeout(() => setBouncing(false), 800);
-      setTimeout(() => setGlowing(false), GLOW_DURATION);
+      let bounceTimer: ReturnType<typeof setTimeout>;
+      let glowTimer: ReturnType<typeof setTimeout>;
+      const frame = requestAnimationFrame(() => {
+        setBouncing(true);
+        setGlowing(true);
+        bounceStartRef.current = performance.now();
+        bounceTimer = setTimeout(() => setBouncing(false), 800);
+        glowTimer = setTimeout(() => setGlowing(false), GLOW_DURATION);
+      });
+      return () => {
+        cancelAnimationFrame(frame);
+        clearTimeout(bounceTimer);
+        clearTimeout(glowTimer);
+      };
     }
   }, [index]);
 
