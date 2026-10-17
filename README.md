@@ -41,14 +41,18 @@ npm run dev
 
 ## Cloudflare release
 
-Staging is deployed as `genscope-staging`; production is reserved as the separate
-Worker `genscope`. The configuration rejects every other Worker name and uses
-separate rate-limit namespaces for staging and production.
+Staging is deployed in the dedicated Free Cloudflare account `GenScope` as
+`https://genscope-staging.genscope-explorer.workers.dev`. Production is reserved
+as the separate Worker `genscope`, which will use
+`https://genscope.genscope-explorer.workers.dev`. The configuration rejects every
+other Worker name and uses separate rate-limit namespaces for staging and
+production.
 
 After building or restoring the approved CI artifact, deploy staging with the
 default configuration. Production deployment requires release approval and:
 
 ```powershell
+$env:CLOUDFLARE_ACCOUNT_ID = "edc43962873774a5f92249b63720bac8"
 $env:GENSCOPE_WORKER_NAME = "genscope"
 node node_modules/@vinext/cloudflare/dist/cli.js deploy --skip-build --verbose
 ```
@@ -56,9 +60,9 @@ node node_modules/@vinext/cloudflare/dist/cli.js deploy --skip-build --verbose
 Rollback uses retained Cloudflare versions, without rebuilding:
 
 ```powershell
+$env:CLOUDFLARE_ACCOUNT_ID = "edc43962873774a5f92249b63720bac8"
 npx cf workers deployments create --worker genscope --strategy percentage --versions '[{"version_id":"<KNOWN_GOOD_VERSION>","percentage":100}]'
 ```
 
-The account-wide `workers.dev` subdomain is intentionally unchanged because it
-also hosts unrelated Workers. A privacy-neutral `orbit.workers.dev` namespace
-requires a dedicated Cloudflare account so those deployments are not renamed.
+The dedicated account owns the privacy-neutral `genscope-explorer.workers.dev`
+namespace. The original account and its unrelated Workers remain unchanged.
