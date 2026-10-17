@@ -22,3 +22,32 @@ export function candidatePage(
   const next = offset + page.length;
   return { candidates: page, nextCandidateCursor: next < candidates.length ? next : null };
 }
+
+type Continuation = { cursor: number; candidateCursor: number };
+
+export function planContinuations(options: {
+  failedChunks: number;
+  candidateFailures: number;
+  candidateCursor: number;
+  nextCandidateCursor: number | null;
+  toBlock: number;
+  olderCursor: number | null;
+}): { continuation: Continuation | null; retryContinuation: Continuation | null } {
+  if (options.failedChunks > 0) {
+    return {
+      continuation: { cursor: options.toBlock, candidateCursor: 0 },
+      retryContinuation: { cursor: options.toBlock, candidateCursor: 0 },
+    };
+  }
+  const continuation = options.nextCandidateCursor !== null
+    ? { cursor: options.toBlock, candidateCursor: options.nextCandidateCursor }
+    : options.olderCursor !== null
+      ? { cursor: options.olderCursor, candidateCursor: 0 }
+      : null;
+  return {
+    continuation,
+    retryContinuation: options.candidateFailures > 0
+      ? { cursor: options.toBlock, candidateCursor: options.candidateCursor }
+      : null,
+  };
+}

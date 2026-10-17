@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { candidatePage, parseNonNegativeCursor, sortCandidates } from "./pagination";
+import { candidatePage, parseNonNegativeCursor, planContinuations, sortCandidates } from "./pagination";
 
 const NETWORKS = {
   "testnet-bradbury": { rpcUrl: "https://rpc-bradbury.genlayer.com", consensus: "0x0112Bf6e83497965A5fdD6Dad1E447a6E004271D", studio: false },
@@ -165,44 +165,47 @@ export async function GET(request: NextRequest) {
     const discovered = await mapWithConcurrency(candidatePlan.candidates, 3, async ([address, blockNumber]) => {
       const schema = await getContractMethods(network, address, budget);
       if (schema.methods) {
-        return { contract: { address, methods: schema.methods, blockNumber, network: networkName }, failed: false };
+        return { address, contract: { address, methods: schema.methods, blockNumber, network: networkName }, failed: false };
       }
       const ghost = await isGhostContract(network, address, budget);
       return {
+        address,
         contract: ghost.isGhost ? { address, methods: [], blockNumber, network: networkName } : null,
         failed: ghost.failed,
       };
     });
     const contracts: ContractEntry[] = discovered
       .filter((item) => item.status === "fulfilled" && item.value.contract !== null)
-      .map((item) => (item as PromiseFulfilledResult<{ contract: ContractEntry; failed: boolean }>).value.contract)
+      .map((item) => (item as PromiseFulfilledResult<{ address: string; contract: ContractEntry; failed: boolean }>).value.contract)
       .sort((a, b) => b.blockNumber - a.blockNumber);
     const candidateFailures = discovered.filter(
       (item) => item.status === "rejected" || (item.status === "fulfilled" && item.value.failed),
     ).length;
     const partial = failedChunks > 0 || candidateFailures > 0;
+    const unresolvedCandidates = discovered.flatMap((item, index) =>
+      item.status === "rejected" || item.value.failed
+        ? [candidatePlan.candidates[index][0]]
+        : [],
+    );
     const olderCursor = fromBlock > 0 ? fromBlock - 1 : null;
-    // Retry the same deterministic page after any failure; advancing would make
-    // completeness claims untrustworthy because a candidate could be skipped.
-    const nextCandidateCursor = failedChunks > 0
-      ? 0
-      : candidateFailures > 0
-        ? candidateCursor
-        : candidatePlan.nextCandidateCursor;
-    const nextCursor = failedChunks > 0 || nextCandidateCursor !== null ? toBlock : olderCursor;
-    const continuation = nextCursor === null ? null : {
-      cursor: nextCursor,
-      candidateCursor: nextCandidateCursor ?? 0,
-    };
+    const { continuation, retryContinuation } = planContinuations({
+      failedChunks,
+      candidateFailures,
+      candidateCursor,
+      nextCandidateCursor: candidatePlan.nextCandidateCursor,
+      toBlock,
+      olderCursor,
+    });
 
     return NextResponse.json({
       contracts,
       pagination: {
         fromBlock,
         toBlock,
-        nextCursor,
-        nextCandidateCursor,
+        nextCursor: continuation?.cursor ?? null,
+        nextCandidateCursor: continuation?.candidateCursor ?? null,
         continuation,
+        retryContinuation,
         complete: continuation === null && !partial,
       },
       coverage: {
@@ -214,7 +217,7 @@ export async function GET(request: NextRequest) {
         logChunksSucceeded: chunks.length - failedChunks,
       },
       partial,
-      failures: { logChunks: failedChunks, candidates: candidateFailures },
+      failures: { logChunks: failedChunks, candidates: candidateFailures, unresolvedCandidates },
       budget: { used: budget.used, limit: MAX_SUBREQUESTS },
     }, {
       headers: { ...CORS, "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" },
