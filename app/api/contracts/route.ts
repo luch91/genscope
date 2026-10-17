@@ -164,7 +164,6 @@ export async function GET(request: NextRequest) {
     const candidatePlan = candidatePage(allCandidates, candidateCursor, MAX_SUBREQUESTS - budget.used);
     const discovered = await mapWithConcurrency(candidatePlan.candidates, 3, async ([address, blockNumber]) => {
       const schema = await getContractMethods(network, address, budget);
-      if (schema.failed) return { contract: null, failed: true };
       if (schema.methods) {
         return { contract: { address, methods: schema.methods, blockNumber, network: networkName }, failed: false };
       }
