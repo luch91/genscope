@@ -25,7 +25,10 @@ export default defineConfig({
       ASSETS: bindings.assets(),
       RPC_RATE_LIMITER: bindings.rateLimit({
         namespace: "1001",
-        simple: { limit: 240, period: 60 },
+        // Initial block/receipt hydration is bursty, and IP keys may represent
+        // multiple users behind one NAT. Keep abuse bounded without starving
+        // two concurrent explorer sessions.
+        simple: { limit: 600, period: 60 },
       }),
     },
   }),

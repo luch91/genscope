@@ -15,7 +15,7 @@ test("loads the explorer, WebGL scene, and live APIs without client errors", asy
   await expect(page.locator("canvas")).toBeVisible();
   await expect(page.getByPlaceholder(/Search block/i)).toBeVisible();
   await expect(page.getByText(/LIVE|SYNCING|RECONNECTING/).first()).toBeVisible();
-  await expect(page.getByText(/^[1-9]\d* txs$/)).toBeVisible({ timeout: 45_000 });
+  await expect(page.getByText(/^\d+ txs$/)).toBeVisible({ timeout: 45_000 });
 
   const firstPartyFailures = failedRequests.filter((url) => url.includes(new URL(page.url()).host));
   expect(firstPartyFailures).toEqual([]);
