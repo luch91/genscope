@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { candidatePage, parseNonNegativeCursor, sortCandidates } from "./pagination";
 
 const NETWORKS = {
   "testnet-bradbury": { rpcUrl: "https://rpc-bradbury.genlayer.com", consensus: "0x0112Bf6e83497965A5fdD6Dad1E447a6E004271D", studio: false },
@@ -10,7 +11,6 @@ const NEW_TX_TOPIC = "0xdab9102861c7483a187584d6371d88316f005af507982ccf95c11087
 const GHOST_SELECTOR = "0x7440c21b";
 const CHUNK_SIZE = 10_000;
 const CHUNKS_PER_PAGE = 4;
-const MAX_CANDIDATES = 10;
 const MAX_SUBREQUESTS = 45;
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS" };
 
@@ -47,14 +47,6 @@ async function rpc(rpcUrl: string, method: string, params: unknown[], budget: Re
   return json.result;
 }
 
-function parseCursor(value: string | null): number | null {
-  if (value === null) return null;
-  if (!/^\d{1,12}$/.test(value)) throw new Error("INVALID_CURSOR");
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error("INVALID_CURSOR");
-  return parsed;
-}
-
 function extractAddress(topic: string): string | null {
   return /^0x[0-9a-fA-F]{64}$/.test(topic) ? `0x${topic.slice(-40).toLowerCase()}` : null;
 }
@@ -63,7 +55,7 @@ async function getContractMethods(
   network: (typeof NETWORKS)[NetworkName],
   address: string,
   budget: RequestBudget,
-): Promise<string[] | null> {
+): Promise<{ methods: string[] | null; failed: boolean }> {
   try {
     // Bradbury/Asimov accept {code}, not an address. Fetching code first mirrors current genlayer-js.
     const schema = network.studio
@@ -71,11 +63,14 @@ async function getContractMethods(
       : await rpc(network.rpcUrl, "gen_getContractSchema", [{
           code: await rpc(network.rpcUrl, "gen_getContractCode", [{ address }], budget),
         }], budget);
-    if (!schema || typeof schema !== "object" || Array.isArray(schema)) return null;
+    if (!schema || typeof schema !== "object" || Array.isArray(schema)) return { methods: null, failed: false };
     const methods = (schema as Record<string, unknown>).methods;
-    return methods && typeof methods === "object" && !Array.isArray(methods) ? Object.keys(methods) : null;
+    return {
+      methods: methods && typeof methods === "object" && !Array.isArray(methods) ? Object.keys(methods) : null,
+      failed: false,
+    };
   } catch {
-    return null;
+    return { methods: null, failed: true };
   }
 }
 
@@ -83,13 +78,13 @@ async function isGhostContract(
   network: (typeof NETWORKS)[NetworkName],
   address: string,
   budget: RequestBudget,
-): Promise<boolean> {
+): Promise<{ isGhost: boolean; failed: boolean }> {
   try {
     const data = GHOST_SELECTOR + address.slice(2).padStart(64, "0");
     const result = await rpc(network.rpcUrl, "eth_call", [{ to: network.consensus, data }, "latest"], budget);
-    return typeof result === "string" && BigInt(result) === BigInt(1);
+    return { isGhost: typeof result === "string" && BigInt(result) === BigInt(1), failed: false };
   } catch {
-    return false;
+    return { isGhost: false, failed: true };
   }
 }
 
@@ -123,7 +118,11 @@ export async function GET(request: NextRequest) {
   const budget = new RequestBudget();
 
   try {
-    const cursor = parseCursor(request.nextUrl.searchParams.get("cursor"));
+    const cursor = parseNonNegativeCursor(request.nextUrl.searchParams.get("cursor"), "INVALID_CURSOR");
+    const candidateCursor = parseNonNegativeCursor(
+      request.nextUrl.searchParams.get("candidateCursor"),
+      "INVALID_CANDIDATE_CURSOR",
+    ) ?? 0;
     const latestHex = await rpc(network.rpcUrl, "eth_blockNumber", [], budget);
     if (typeof latestHex !== "string" || !/^0x[0-9a-f]+$/i.test(latestHex)) throw new Error("INVALID_LATEST_BLOCK");
     const latest = Number.parseInt(latestHex, 16);
@@ -160,25 +159,61 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const candidates = Array.from(seen.entries()).slice(0, MAX_CANDIDATES);
-    const discovered = await mapWithConcurrency(candidates, 3, async ([address, blockNumber]) => {
-      const methods = await getContractMethods(network, address, budget);
-      if (methods) return { address, methods, blockNumber, network: networkName };
-      return await isGhostContract(network, address, budget)
-        ? { address, methods: [], blockNumber, network: networkName }
-        : null;
+    const allCandidates = sortCandidates(seen.entries());
+    if (candidateCursor > allCandidates.length) throw new Error("INVALID_CANDIDATE_CURSOR");
+    const candidatePlan = candidatePage(allCandidates, candidateCursor, MAX_SUBREQUESTS - budget.used);
+    const discovered = await mapWithConcurrency(candidatePlan.candidates, 3, async ([address, blockNumber]) => {
+      const schema = await getContractMethods(network, address, budget);
+      if (schema.failed) return { contract: null, failed: true };
+      if (schema.methods) {
+        return { contract: { address, methods: schema.methods, blockNumber, network: networkName }, failed: false };
+      }
+      const ghost = await isGhostContract(network, address, budget);
+      return {
+        contract: ghost.isGhost ? { address, methods: [], blockNumber, network: networkName } : null,
+        failed: ghost.failed,
+      };
     });
     const contracts: ContractEntry[] = discovered
-      .filter((item): item is PromiseFulfilledResult<ContractEntry> => item.status === "fulfilled" && item.value !== null)
-      .map((item) => item.value)
+      .filter((item) => item.status === "fulfilled" && item.value.contract !== null)
+      .map((item) => (item as PromiseFulfilledResult<{ contract: ContractEntry; failed: boolean }>).value.contract)
       .sort((a, b) => b.blockNumber - a.blockNumber);
-    const nextCursor = fromBlock > 0 ? fromBlock - 1 : null;
-    const candidateFailures = discovered.filter((item) => item.status === "rejected").length;
+    const candidateFailures = discovered.filter(
+      (item) => item.status === "rejected" || (item.status === "fulfilled" && item.value.failed),
+    ).length;
     const partial = failedChunks > 0 || candidateFailures > 0;
+    const olderCursor = fromBlock > 0 ? fromBlock - 1 : null;
+    // Retry the same deterministic page after any failure; advancing would make
+    // completeness claims untrustworthy because a candidate could be skipped.
+    const nextCandidateCursor = failedChunks > 0
+      ? 0
+      : candidateFailures > 0
+        ? candidateCursor
+        : candidatePlan.nextCandidateCursor;
+    const nextCursor = failedChunks > 0 || nextCandidateCursor !== null ? toBlock : olderCursor;
+    const continuation = nextCursor === null ? null : {
+      cursor: nextCursor,
+      candidateCursor: nextCandidateCursor ?? 0,
+    };
 
     return NextResponse.json({
       contracts,
-      pagination: { fromBlock, toBlock, nextCursor, complete: nextCursor === null && !partial },
+      pagination: {
+        fromBlock,
+        toBlock,
+        nextCursor,
+        nextCandidateCursor,
+        continuation,
+        complete: continuation === null && !partial,
+      },
+      coverage: {
+        candidatesFound: allCandidates.length,
+        candidateOffset: candidateCursor,
+        candidatesProcessed: candidatePlan.candidates.length,
+        candidatesRemaining: Math.max(0, allCandidates.length - candidateCursor - candidatePlan.candidates.length),
+        logChunksTotal: chunks.length,
+        logChunksSucceeded: chunks.length - failedChunks,
+      },
       partial,
       failures: { logChunks: failedChunks, candidates: candidateFailures },
       budget: { used: budget.used, limit: MAX_SUBREQUESTS },
@@ -187,7 +222,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     const code = error instanceof Error ? error.message : "UNKNOWN_ERROR";
-    const status = code === "INVALID_CURSOR" ? 400 : 502;
+    const status = code === "INVALID_CURSOR" || code === "INVALID_CANDIDATE_CURSOR" ? 400 : 502;
     console.warn(JSON.stringify({ event: "contract_discovery_failed", network: networkName, code, subrequests: budget.used }));
     return NextResponse.json(
       { error: code, partial: true, budget: { used: budget.used, limit: MAX_SUBREQUESTS } },

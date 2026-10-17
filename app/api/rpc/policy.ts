@@ -1,8 +1,6 @@
 const MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const UPSTREAM_TIMEOUT_MS = 8_000;
-const RATE_LIMIT = 240;
-const RATE_WINDOW_MS = 60_000;
 
 export const READ_ONLY_RPC_METHODS = new Set([
   "eth_blockNumber",
@@ -21,8 +19,9 @@ export type JsonRpcRequest = {
   params: unknown[];
 };
 
-type RateEntry = { count: number; resetAt: number };
-const rateEntries = new Map<string, RateEntry>();
+export interface SharedRateLimiter {
+  limit(options: { key: string }): Promise<{ success: boolean }>;
+}
 
 export class RpcPolicyError extends Error {
   constructor(
@@ -35,20 +34,14 @@ export class RpcPolicyError extends Error {
   }
 }
 
-export function enforceRateLimit(key: string, now = Date.now()): void {
-  const current = rateEntries.get(key);
-  if (!current || current.resetAt <= now) {
-    if (rateEntries.size > 2_000) rateEntries.clear();
-    rateEntries.set(key, { count: 1, resetAt: now + RATE_WINDOW_MS });
-    return;
-  }
-  current.count += 1;
-  if (current.count > RATE_LIMIT) {
+export async function enforceRateLimit(limiter: SharedRateLimiter, key: string): Promise<void> {
+  const { success } = await limiter.limit({ key });
+  if (!success) {
     throw new RpcPolicyError(
       429,
       "RATE_LIMITED",
       "RPC request rate limit exceeded",
-      Math.max(1, Math.ceil((current.resetAt - now) / 1_000)),
+      60,
     );
   }
 }

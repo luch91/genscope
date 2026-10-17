@@ -12,9 +12,18 @@ import { isIntelligentContract } from "./classifiers";
 const STATUS_NAME_TO_CODE: Record<string, number> = {
   UNINITIALIZED: 0,
   PENDING:       1,
+  PROPOSING:     2,
+  COMMITTING:    3,
+  REVEALING:     4,
   ACCEPTED:      5,
+  UNDETERMINED:  6,
   FINALIZED:     7,
   CANCELED:      8,
+  APPEAL_REVEALING: 9,
+  APPEAL_COMMITTING: 10,
+  READY_TO_FINALIZE: 11,
+  VALIDATORS_TIMEOUT: 12,
+  LEADER_TIMEOUT: 13,
 };
 
 // gen_getTransactionReceipt returns round result as a uint8 (ResultType enum)

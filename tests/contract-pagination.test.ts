@@ -1,0 +1,26 @@
+import { describe, expect, it } from "vitest";
+import { candidatePage, parseNonNegativeCursor, sortCandidates } from "../app/api/contracts/pagination";
+
+describe("contract discovery pagination", () => {
+  const candidates = sortCandidates(Array.from({ length: 20 }, (_, index) => [
+    `0x${index.toString(16).padStart(40, "0")}`,
+    100 + (index % 3),
+  ] as const));
+
+  it("continues every candidate without silent truncation", () => {
+    const first = candidatePage(candidates, 0, 30);
+    expect(first.candidates).toHaveLength(10);
+    expect(first.nextCandidateCursor).toBe(10);
+
+    const second = candidatePage(candidates, first.nextCandidateCursor!, 30);
+    expect(second.candidates).toHaveLength(10);
+    expect(second.nextCandidateCursor).toBeNull();
+    expect([...first.candidates, ...second.candidates]).toEqual(candidates);
+  });
+
+  it("uses worst-case subrequest cost and validates continuation cursors", () => {
+    expect(candidatePage(candidates, 0, 8).candidates).toHaveLength(2);
+    expect(() => parseNonNegativeCursor("-1", "INVALID_CANDIDATE_CURSOR"))
+      .toThrowError("INVALID_CANDIDATE_CURSOR");
+  });
+});

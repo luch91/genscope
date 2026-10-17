@@ -23,6 +23,10 @@ export default defineConfig({
     env: {
       ...cache.env,
       ASSETS: bindings.assets(),
+      RPC_RATE_LIMITER: bindings.rateLimit({
+        namespace: "1001",
+        simple: { limit: 240, period: 60 },
+      }),
     },
   }),
 });

@@ -19,6 +19,7 @@ export const useSceneState = create<AppState>((set) => ({
   verifiedBlockNumber: 0,
   chainTxCount: 0,
   loadingOlder: false,
+  incompleteReceipts: {},
 
   addFeedTx: (tx: GenLayerTransaction) => {
     set((state) => {
@@ -131,6 +132,8 @@ export const useSceneState = create<AppState>((set) => ({
     set((state) => {
       // Deduplicate by hash (last write wins for metadata, keeps order stable)
       const txMap = new Map<string, GenLayerTransaction>();
+      const cachedBlock = state.blockCache[blockNumber];
+      cachedBlock?.txDetails.forEach((tx) => txMap.set(tx.hash, tx));
       txs.forEach((tx) => txMap.set(tx.hash, tx));
       const dedupedTxs = Array.from(txMap.values());
 
@@ -140,11 +143,12 @@ export const useSceneState = create<AppState>((set) => ({
       const hasIntelligent = dedupedTxs.some((t) => t.isIntelligent);
       const hasStandard = dedupedTxs.some((t) => !t.isIntelligent);
 
-      const newBlocks = state.blocks.map((b) =>
+      const updateBlock = (b: Block) =>
         b.number === blockNumber
           ? { ...b, txDetails: dedupedTxs, hasIntelligent, hasStandard }
-          : b
-      );
+          : b;
+      const newBlocks = state.blocks.map(updateBlock);
+      const updatedCachedBlock = cachedBlock ? updateBlock(cachedBlock) : undefined;
 
       const allTxs = Object.values(newTxMap);
       const intelligentCount = allTxs.filter((t) => t.isIntelligent).length;
@@ -159,13 +163,30 @@ export const useSceneState = create<AppState>((set) => ({
         blocks: newBlocks,
         blockCache: newBlocks.reduce(
           (cache, block) => ({ ...cache, [block.number]: block }),
-          state.blockCache,
+          updatedCachedBlock
+            ? { ...state.blockCache, [blockNumber]: updatedCachedBlock }
+            : state.blockCache,
         ),
         transactions: newTxMap,
         totalTxCount: allTxs.length,
         intelligentTxCount: intelligentCount,
         activeValidators: newValidators,
       };
+    });
+  },
+
+  setIncompleteReceipts: (blockNumber: number, hashes: string[]) => {
+    set((state) => ({
+      incompleteReceipts: { ...state.incompleteReceipts, [blockNumber]: [...hashes] },
+    }));
+  },
+
+  clearIncompleteReceipts: (blockNumber: number) => {
+    set((state) => {
+      if (!(blockNumber in state.incompleteReceipts)) return state;
+      const incompleteReceipts = { ...state.incompleteReceipts };
+      delete incompleteReceipts[blockNumber];
+      return { incompleteReceipts };
     });
   },
 }));

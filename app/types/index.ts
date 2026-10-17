@@ -1,16 +1,34 @@
 export type TransactionStatus =
   | "UNINITIALIZED"
   | "PENDING"
+  | "PROPOSING"
+  | "COMMITTING"
+  | "REVEALING"
   | "ACCEPTED"
+  | "UNDETERMINED"
   | "FINALIZED"
-  | "CANCELED";
+  | "CANCELED"
+  | "APPEAL_REVEALING"
+  | "APPEAL_COMMITTING"
+  | "READY_TO_FINALIZE"
+  | "VALIDATORS_TIMEOUT"
+  | "LEADER_TIMEOUT";
 
 export const STATUS_MAP: Record<number, TransactionStatus> = {
   0: "UNINITIALIZED",
   1: "PENDING",
+  2: "PROPOSING",
+  3: "COMMITTING",
+  4: "REVEALING",
   5: "ACCEPTED",
+  6: "UNDETERMINED",
   7: "FINALIZED",
   8: "CANCELED",
+  9: "APPEAL_REVEALING",
+  10: "APPEAL_COMMITTING",
+  11: "READY_TO_FINALIZE",
+  12: "VALIDATORS_TIMEOUT",
+  13: "LEADER_TIMEOUT",
 };
 
 export interface ConsensusRound {
@@ -100,6 +118,7 @@ export interface AppState {
   verifiedBlockNumber: number; // lastVerifiedBlock from explorer stats API
   chainTxCount: number;        // totalTransactions from explorer stats API (chain-wide)
   loadingOlder: boolean;       // true while fetching older blocks
+  incompleteReceipts: Record<number, string[]>;
 
   // actions
   addFeedTx: (tx: GenLayerTransaction) => void;
@@ -116,4 +135,6 @@ export interface AppState {
   setChainTxCount: (n: number) => void;
   setLoadingOlder: (loading: boolean) => void;
   updateBlockTxDetails: (blockNumber: number, txs: GenLayerTransaction[]) => void;
+  setIncompleteReceipts: (blockNumber: number, hashes: string[]) => void;
+  clearIncompleteReceipts: (blockNumber: number) => void;
 }

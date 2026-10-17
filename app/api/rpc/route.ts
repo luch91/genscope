@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { env } from "cloudflare:workers";
 import {
   enforceRateLimit,
   forwardRpc,
@@ -14,7 +15,7 @@ export async function POST(req: NextRequest) {
     const clientKey = req.headers.get("cf-connecting-ip")
       ?? req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
       ?? "unknown";
-    enforceRateLimit(clientKey);
+    await enforceRateLimit(env.RPC_RATE_LIMITER, clientKey);
     const payload = await readBoundedJson(req);
     const response = await forwardRpc(payload, BRADBURY_RPC);
     response.headers.set("X-Request-Id", requestId);

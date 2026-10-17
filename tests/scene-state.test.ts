@@ -21,7 +21,7 @@ function block(number: number): Block {
 
 describe("block history and render window", () => {
   beforeEach(() => {
-    useSceneState.setState({ blocks: [], blockCache: {} });
+    useSceneState.setState({ blocks: [], blockCache: {}, transactions: {}, incompleteReceipts: {} });
   });
 
   it("keeps fetched history while rendering at most 100 blocks", () => {
@@ -49,5 +49,27 @@ describe("block history and render window", () => {
     const state = useSceneState.getState();
     expect(state.blockCache[8]).toBeDefined();
     expect(state.blockCache[11]).toBeDefined();
+  });
+
+  it("merges partial receipts in cached blocks and preserves recovery state", () => {
+    const historical = { ...block(42), transactions: ["0xa", "0xb"] };
+    useSceneState.getState().setBlocks([historical]);
+    const transaction = {
+      hash: "0xa", id: "0xa", txOrigin: "", sender: "", recipient: "", activator: "",
+      status: "PENDING" as const, statusCode: 1,
+      timestamps: { Created: "", Pending: "", Activated: "", Proposed: "", Committed: "", LastVote: "" },
+      numOfInitialValidators: 0, consumedValidators: [], roundData: [], eqBlocksOutputs: "c0",
+      txData: "", readStateBlockRange: { ActivationBlock: 0, ProcessingBlock: 0, ProposalBlock: 0 },
+      isIntelligent: false, blockNumber: 42,
+    };
+    useSceneState.getState().updateBlockTxDetails(42, [transaction]);
+    useSceneState.getState().setIncompleteReceipts(42, ["0xb"]);
+    useSceneState.setState({ blocks: [] });
+
+    expect(useSceneState.getState().blockCache[42].txDetails.map((tx) => tx.hash)).toEqual(["0xa"]);
+    expect(useSceneState.getState().incompleteReceipts[42]).toEqual(["0xb"]);
+
+    useSceneState.getState().clearIncompleteReceipts(42);
+    expect(useSceneState.getState().incompleteReceipts[42]).toBeUndefined();
   });
 });

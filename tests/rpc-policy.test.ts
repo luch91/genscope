@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  enforceRateLimit,
   forwardRpc,
   readBoundedJson,
   RpcPolicyError,
@@ -7,6 +8,19 @@ import {
 } from "../app/api/rpc/policy";
 
 describe("RPC proxy policy", () => {
+  it("uses the shared platform rate limiter", async () => {
+    const allowed = { limit: vi.fn(async () => ({ success: true })) };
+    await expect(enforceRateLimit(allowed, "203.0.113.1")).resolves.toBeUndefined();
+    expect(allowed.limit).toHaveBeenCalledWith({ key: "203.0.113.1" });
+
+    const denied = { limit: vi.fn(async () => ({ success: false })) };
+    await expect(enforceRateLimit(denied, "203.0.113.1")).rejects.toMatchObject({
+      status: 429,
+      code: "RATE_LIMITED",
+      retryAfter: 60,
+    });
+  });
+
   it("accepts explorer read methods", () => {
     expect(validateRpcPayload({
       jsonrpc: "2.0",
