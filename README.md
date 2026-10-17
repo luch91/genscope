@@ -38,3 +38,27 @@ npm run dev
 | `app/hooks/useSceneState.ts` | Zustand store — single source of truth |
 | `app/components/scene/` | Three.js scene: block tower, orbs, camera, star field |
 | `app/components/ui/` | Overlay UI: stats bar, live feed, search, transaction panel |
+
+## Cloudflare release
+
+Staging is deployed as `genscope-staging`; production is reserved as the separate
+Worker `genscope`. The configuration rejects every other Worker name and uses
+separate rate-limit namespaces for staging and production.
+
+After building or restoring the approved CI artifact, deploy staging with the
+default configuration. Production deployment requires release approval and:
+
+```powershell
+$env:GENSCOPE_WORKER_NAME = "genscope"
+node node_modules/@vinext/cloudflare/dist/cli.js deploy --skip-build --verbose
+```
+
+Rollback uses retained Cloudflare versions, without rebuilding:
+
+```powershell
+npx cf workers deployments create --worker genscope --strategy percentage --versions '[{"version_id":"<KNOWN_GOOD_VERSION>","percentage":100}]'
+```
+
+The account-wide `workers.dev` subdomain is intentionally unchanged because it
+also hosts unrelated Workers. A privacy-neutral `orbit.workers.dev` namespace
+requires a dedicated Cloudflare account so those deployments are not renamed.

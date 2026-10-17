@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { candidatePage, parseNonNegativeCursor, planContinuations, sortCandidates } from "./pagination";
+import {
+  candidateClassificationUnresolved,
+  candidatePage,
+  GHOST_SELECTOR,
+  parseNonNegativeCursor,
+  planContinuations,
+  sortCandidates,
+} from "./pagination";
 
 const NETWORKS = {
   "testnet-bradbury": { rpcUrl: "https://rpc-bradbury.genlayer.com", consensus: "0x0112Bf6e83497965A5fdD6Dad1E447a6E004271D", studio: false },
@@ -8,7 +15,6 @@ const NETWORKS = {
 } as const;
 
 const NEW_TX_TOPIC = "0xdab9102861c7483a187584d6371d88316f005af507982ccf95c110879f3ed5a5";
-const GHOST_SELECTOR = "0x7440c21b";
 const CHUNK_SIZE = 10_000;
 const CHUNKS_PER_PAGE = 4;
 const MAX_SUBREQUESTS = 45;
@@ -171,7 +177,11 @@ export async function GET(request: NextRequest) {
       return {
         address,
         contract: ghost.isGhost ? { address, methods: [], blockNumber, network: networkName } : null,
-        failed: ghost.failed,
+        failed: candidateClassificationUnresolved({
+          schemaFailed: schema.failed,
+          ghostCheckFailed: ghost.failed,
+          isGhost: ghost.isGhost,
+        }),
       };
     });
     const contracts: ContractEntry[] = discovered

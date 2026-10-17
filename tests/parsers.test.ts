@@ -57,4 +57,36 @@ describe("GenLayer parsing", () => {
     expect(parsed.timestamps.Created).toBe("1970-01-01T00:00:01.000Z");
     expect(parsed.readStateBlockRange.ProposalBlock).toBe(12);
   });
+
+  it("interprets the verified Bradbury receipt fixture", () => {
+    const txId = "0x3cc6da768d07b64bfb9ce27130215abaf3731d503ec603adeeb70320ac7e3fad";
+    const validators = [
+      "0x7538369a22a176affccb6b273eedfbb92780bf22",
+      "0xa856ae1b278f030082c66fa50a5f51f485d1f940",
+      "0x183217483618c4ebd34c987de400e01beffe5860",
+      "0xf01877b6ac60861ca3b134e0e483c482679b4682",
+      "0xb4fb7adc6877a6a16bd131c7c9270834bd3def34",
+    ];
+    const parsed = parseReceipt({
+      id: txId,
+      txOrigin: "0x74ff0c760fedaeaaf8f0ece16ab43327ee57c463",
+      sender: "0x74ff0c760fedaeaaf8f0ece16ab43327ee57c463",
+      recipient: "0x87a3e3cd3aabe3b119511ee4d5c247f43cf286f1",
+      activator: "0x470aaa7de37ff3e1c2b38ed9096263ca0d541f21",
+      status: 7,
+      timestamps: { Created: 1792272573, Pending: 1792272573, Activated: 1792272574, Proposed: 1792272576, Committed: 1792272580, LastVote: 1792272582 },
+      numOfInitialValidators: 5,
+      roundData: [{ round: 0, leaderIndex: 4, votesCommitted: 5, votesRevealed: 5, rotationsLeft: 1, result: 1, roundValidators: validators, validatorVotes: "AQEBAQE=", validatorVotesHash: [] }],
+      eqBlocksOutputs: "c786706164646564",
+      txCallData: "f2b01604",
+      readStateBlockRanges: [{ ActivationBlock: 25406147, ProcessingBlock: 25406147, ProposalBlock: 25406149 }],
+    }, txId);
+
+    expect(parsed.id).toBe(txId);
+    expect(parsed.statusCode).toBe(7);
+    expect(parsed.status).toBe("FINALIZED");
+    expect(parsed.roundData).toHaveLength(1);
+    expect(parsed.roundData[0]).toMatchObject({ round: 0, result: "AGREE", roundValidators: validators });
+    expect(parsed.consumedValidators).toEqual(validators);
+  });
 });

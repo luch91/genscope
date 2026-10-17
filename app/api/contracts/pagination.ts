@@ -1,5 +1,9 @@
 export type Candidate = readonly [address: string, blockNumber: number];
 
+// ConsensusMain.isGhostContract(address), verified against the ABI shipped by
+// genlayer-js 0.28.4. This is not GhostFactory.ghostContracts(address).
+export const GHOST_SELECTOR = "0xaa923c02";
+
 export function parseNonNegativeCursor(value: string | null, code: string): number | null {
   if (value === null) return null;
   if (!/^\d{1,12}$/.test(value)) throw new Error(code);
@@ -21,6 +25,18 @@ export function candidatePage(
   const page = candidates.slice(offset, offset + capacity);
   const next = offset + page.length;
   return { candidates: page, nextCandidateCursor: next < candidates.length ? next : null };
+}
+
+export function candidateClassificationUnresolved(evidence: {
+  schemaFailed: boolean;
+  ghostCheckFailed: boolean;
+  isGhost: boolean;
+}): boolean {
+  if (evidence.ghostCheckFailed) return true;
+  // A positive ghost check is authoritative even when schema retrieval is not
+  // supported. A negative ghost check only establishes a non-contract when the
+  // schema lookup itself completed successfully.
+  return evidence.schemaFailed && !evidence.isGhost;
 }
 
 type Continuation = { cursor: number; candidateCursor: number };

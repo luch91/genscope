@@ -1,11 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { candidatePage, parseNonNegativeCursor, planContinuations, sortCandidates } from "../app/api/contracts/pagination";
+import {
+  candidateClassificationUnresolved,
+  candidatePage,
+  GHOST_SELECTOR,
+  parseNonNegativeCursor,
+  planContinuations,
+  sortCandidates,
+} from "../app/api/contracts/pagination";
 
 describe("contract discovery pagination", () => {
   const candidates = sortCandidates(Array.from({ length: 20 }, (_, index) => [
     `0x${index.toString(16).padStart(40, "0")}`,
     100 + (index % 3),
   ] as const));
+
+  it("uses the ConsensusMain isGhostContract selector", () => {
+    expect(GHOST_SELECTOR).toBe("0xaa923c02");
+  });
 
   it("continues every candidate without silent truncation", () => {
     const first = candidatePage(candidates, 0, 30);
@@ -50,5 +61,23 @@ describe("contract discovery pagination", () => {
       continuation: { cursor: 500, candidateCursor: 0 },
       retryContinuation: { cursor: 500, candidateCursor: 0 },
     });
+  });
+
+  it("keeps a negative ghost result unresolved when schema retrieval failed", () => {
+    expect(candidateClassificationUnresolved({
+      schemaFailed: true,
+      ghostCheckFailed: false,
+      isGhost: false,
+    })).toBe(true);
+    expect(candidateClassificationUnresolved({
+      schemaFailed: false,
+      ghostCheckFailed: false,
+      isGhost: false,
+    })).toBe(false);
+    expect(candidateClassificationUnresolved({
+      schemaFailed: true,
+      ghostCheckFailed: false,
+      isGhost: true,
+    })).toBe(false);
   });
 });
