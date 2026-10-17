@@ -8,7 +8,9 @@ test("loads the explorer, WebGL scene, and live APIs without client errors", asy
   });
   page.on("requestfailed", (request) => failedRequests.push(`${request.method()} ${request.url()}`));
 
-  await page.goto("/", { waitUntil: "networkidle" });
+  // The explorer intentionally polls forever, so networkidle is not a valid
+  // readiness signal. Assert the user-visible application state instead.
+  await page.goto("/", { waitUntil: "domcontentloaded" });
   await expect(page).toHaveTitle(/GenScope/i);
   await expect(page.locator("canvas")).toBeVisible();
   await expect(page.getByPlaceholder(/Search block/i)).toBeVisible();
@@ -28,7 +30,7 @@ test("searches a current block and opens its result", async ({ page, request }) 
   const { result } = await rpc.json();
   const blockNumber = Number.parseInt(result, 16);
 
-  await page.goto("/");
+  await page.goto("/", { waitUntil: "domcontentloaded" });
   const input = page.getByPlaceholder(/Search block/i);
   await expect(page.locator("canvas")).toBeVisible();
   await expect(input).toBeEditable();
