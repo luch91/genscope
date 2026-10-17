@@ -9,6 +9,7 @@ export function useSyncStatus() {
 
   useEffect(() => {
     async function checkSync() {
+      if (document.visibilityState === "hidden") return;
       try {
         const result = await getSyncStatus();
         if (result === false) {

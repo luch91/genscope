@@ -2,6 +2,8 @@
 
 3D block explorer for the GenLayer Bradbury Testnet. Visualize blocks, transactions, and AI consensus rounds in real time.
 
+**Live application:** https://genscope.genscope-explorer.workers.dev
+
 ## Stack
 
 - Next.js 16 (App Router)
@@ -38,3 +40,30 @@ npm run dev
 | `app/hooks/useSceneState.ts` | Zustand store — single source of truth |
 | `app/components/scene/` | Three.js scene: block tower, orbs, camera, star field |
 | `app/components/ui/` | Overlay UI: stats bar, live feed, search, transaction panel |
+
+## Cloudflare release
+
+Production is deployed in the dedicated Free Cloudflare account `GenScope` as
+`https://genscope.genscope-explorer.workers.dev`. Staging remains available at
+`https://genscope-staging.genscope-explorer.workers.dev`. The configuration
+rejects every other Worker name and uses separate rate-limit namespaces for
+staging and production.
+
+After building or restoring an approved CI artifact, deploy staging with the
+default configuration. An approved production deployment uses:
+
+```powershell
+$env:CLOUDFLARE_ACCOUNT_ID = "edc43962873774a5f92249b63720bac8"
+$env:GENSCOPE_WORKER_NAME = "genscope"
+node node_modules/@vinext/cloudflare/dist/cli.js deploy --skip-build --verbose
+```
+
+Rollback uses retained Cloudflare versions, without rebuilding:
+
+```powershell
+$env:CLOUDFLARE_ACCOUNT_ID = "edc43962873774a5f92249b63720bac8"
+npx cf workers deployments create --worker genscope --strategy percentage --versions '[{"version_id":"<KNOWN_GOOD_VERSION>","percentage":100}]'
+```
+
+The dedicated account owns the privacy-neutral `genscope-explorer.workers.dev`
+namespace. The original account and its unrelated Workers remain unchanged.

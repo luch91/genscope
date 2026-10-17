@@ -1,23 +1,31 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { env } from "cloudflare:workers";
+import {
+  enforceRateLimit,
+  forwardRpc,
+  readBoundedJson,
+  rpcErrorResponse,
+} from "./policy";
 
-const BRADBURY_RPC = "https://rpc-bradbury.genlayer.com";
+const BRADBURY_RPC = process.env.BRADBURY_RPC_URL ?? "https://rpc-bradbury.genlayer.com";
 
 export async function POST(req: NextRequest) {
+  const requestId = crypto.randomUUID();
   try {
-    const body = await req.text();
-    const upstream = await fetch(BRADBURY_RPC, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body,
-    });
-
-    const data = await upstream.text();
-    return new NextResponse(data, {
-      status: upstream.status,
-      headers: { "Content-Type": "application/json" },
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "RPC proxy error";
-    return NextResponse.json({ error: message }, { status: 502 });
+    const clientKey = req.headers.get("cf-connecting-ip")
+      ?? req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+      ?? "unknown";
+    await enforceRateLimit(env.RPC_RATE_LIMITER, clientKey);
+    const payload = await readBoundedJson(req);
+    const response = await forwardRpc(payload, BRADBURY_RPC);
+    response.headers.set("X-Request-Id", requestId);
+    return response;
+  } catch (error) {
+    console.warn(JSON.stringify({
+      event: "rpc_proxy_rejected",
+      requestId,
+      code: error instanceof Error ? error.name : "UnknownError",
+    }));
+    return rpcErrorResponse(error, requestId);
   }
 }

@@ -221,7 +221,7 @@ export default function StatsBar() {
 
       {/* COMMITTED panel — live chain head */}
       {openPanel === "committed" && (
-        <DropPanel onClose={() => setOpenPanel(null)}>
+        <DropPanel>
           <PanelHeader icon="◈" title="Committed Chain Head" color="#aaffcc" />
           <div style={{ padding: "8px 16px 12px" }}>
             {loadingLive ? (
@@ -265,7 +265,7 @@ export default function StatsBar() {
 
       {/* INDEXED TXS panel — list of all indexed transactions */}
       {openPanel === "txs" && (
-        <DropPanel onClose={() => setOpenPanel(null)} wide>
+        <DropPanel wide>
           <PanelHeader icon="◉" title={`${(chainTxCount > 0 ? chainTxCount : totalTxCount).toLocaleString()} Transactions`} color="#aaa" />
           <div
             style={{
@@ -337,7 +337,7 @@ export default function StatsBar() {
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
-function DropPanel({ children, onClose, wide }: { children: React.ReactNode; onClose: () => void; wide?: boolean }) {
+function DropPanel({ children, wide }: { children: React.ReactNode; wide?: boolean }) {
   return (
     <div
       style={{

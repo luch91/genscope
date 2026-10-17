@@ -5,6 +5,7 @@ import { MAX_VISIBLE_BLOCKS } from "../lib/constants";
 
 export const useSceneState = create<AppState>((set) => ({
   blocks: [],
+  blockCache: {},
   transactions: {},
   feedTxs: [],
   selectedBlockNumber: null,
@@ -18,6 +19,7 @@ export const useSceneState = create<AppState>((set) => ({
   verifiedBlockNumber: 0,
   chainTxCount: 0,
   loadingOlder: false,
+  incompleteReceipts: {},
 
   addFeedTx: (tx: GenLayerTransaction) => {
     set((state) => {
@@ -36,17 +38,44 @@ export const useSceneState = create<AppState>((set) => ({
 
   addBlock: (block: Block) => {
     set((state) => {
-      if (state.blocks.find((b) => b.number === block.number)) return state;
+      const blockCache = { ...state.blockCache, [block.number]: block };
+      if (state.blocks.find((b) => b.number === block.number)) {
+        return { blockCache };
+      }
       const newBlocks = [block, ...state.blocks]
         .sort((a, b) => b.number - a.number)
         .slice(0, MAX_VISIBLE_BLOCKS);
-      return { blocks: newBlocks };
+      return { blocks: newBlocks, blockCache };
+    });
+  },
+
+  addOlderBlocks: (olderBlocks: Block[]) => {
+    set((state) => {
+      const blockCache = { ...state.blockCache };
+      for (const block of olderBlocks) blockCache[block.number] = block;
+
+      // Shift the rendered window backwards while retaining all fetched blocks
+      // in blockCache for search and forward navigation.
+      const combined = [...state.blocks, ...olderBlocks];
+      const unique = Array.from(
+        new Map(combined.map((block) => [block.number, block])).values(),
+      ).sort((a, b) => b.number - a.number);
+      return {
+        blocks: unique.slice(Math.max(0, unique.length - MAX_VISIBLE_BLOCKS)),
+        blockCache,
+      };
     });
   },
 
   setBlocks: (blocks: Block[]) => {
     const sorted = [...blocks].sort((a, b) => b.number - a.number).slice(0, MAX_VISIBLE_BLOCKS);
-    set({ blocks: sorted });
+    set((state) => ({
+      blocks: sorted,
+      blockCache: {
+        ...state.blockCache,
+        ...Object.fromEntries(blocks.map((block) => [block.number, block])),
+      },
+    }));
   },
 
   addTransaction: (tx: GenLayerTransaction) => {
@@ -103,6 +132,8 @@ export const useSceneState = create<AppState>((set) => ({
     set((state) => {
       // Deduplicate by hash (last write wins for metadata, keeps order stable)
       const txMap = new Map<string, GenLayerTransaction>();
+      const cachedBlock = state.blockCache[blockNumber];
+      cachedBlock?.txDetails.forEach((tx) => txMap.set(tx.hash, tx));
       txs.forEach((tx) => txMap.set(tx.hash, tx));
       const dedupedTxs = Array.from(txMap.values());
 
@@ -112,11 +143,12 @@ export const useSceneState = create<AppState>((set) => ({
       const hasIntelligent = dedupedTxs.some((t) => t.isIntelligent);
       const hasStandard = dedupedTxs.some((t) => !t.isIntelligent);
 
-      const newBlocks = state.blocks.map((b) =>
+      const updateBlock = (b: Block) =>
         b.number === blockNumber
           ? { ...b, txDetails: dedupedTxs, hasIntelligent, hasStandard }
-          : b
-      );
+          : b;
+      const newBlocks = state.blocks.map(updateBlock);
+      const updatedCachedBlock = cachedBlock ? updateBlock(cachedBlock) : undefined;
 
       const allTxs = Object.values(newTxMap);
       const intelligentCount = allTxs.filter((t) => t.isIntelligent).length;
@@ -129,11 +161,32 @@ export const useSceneState = create<AppState>((set) => ({
 
       return {
         blocks: newBlocks,
+        blockCache: newBlocks.reduce(
+          (cache, block) => ({ ...cache, [block.number]: block }),
+          updatedCachedBlock
+            ? { ...state.blockCache, [blockNumber]: updatedCachedBlock }
+            : state.blockCache,
+        ),
         transactions: newTxMap,
         totalTxCount: allTxs.length,
         intelligentTxCount: intelligentCount,
         activeValidators: newValidators,
       };
+    });
+  },
+
+  setIncompleteReceipts: (blockNumber: number, hashes: string[]) => {
+    set((state) => ({
+      incompleteReceipts: { ...state.incompleteReceipts, [blockNumber]: [...hashes] },
+    }));
+  },
+
+  clearIncompleteReceipts: (blockNumber: number) => {
+    set((state) => {
+      if (!(blockNumber in state.incompleteReceipts)) return state;
+      const incompleteReceipts = { ...state.incompleteReceipts };
+      delete incompleteReceipts[blockNumber];
+      return { incompleteReceipts };
     });
   },
 }));

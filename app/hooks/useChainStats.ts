@@ -11,9 +11,18 @@ async function fetchStats(): Promise<{
   try {
     const res = await fetch("/api/stats");
     if (!res.ok) return null;
-    const data = await res.json();
+    const data = await res.json() as Record<string, unknown>;
     if (data.error) return null;
-    return data;
+    if (
+      typeof data.lastSealedBlock !== "number"
+      || typeof data.lastVerifiedBlock !== "number"
+      || typeof data.totalTransactions !== "number"
+    ) return null;
+    return {
+      lastSealedBlock: data.lastSealedBlock,
+      lastVerifiedBlock: data.lastVerifiedBlock,
+      totalTransactions: data.totalTransactions,
+    };
   } catch {
     return null;
   }
@@ -26,6 +35,7 @@ export function useChainStats() {
 
   useEffect(() => {
     async function poll() {
+      if (document.visibilityState === "hidden") return;
       const stats = await fetchStats();
       if (stats) {
         setLatestBlockNumber(stats.lastSealedBlock);

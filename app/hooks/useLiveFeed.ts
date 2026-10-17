@@ -4,9 +4,10 @@ import { getTransactionReceipt } from "../lib/genlayer";
 import { parseReceipt, extractGenLayerTxId } from "../lib/parsers";
 import { useSceneState } from "./useSceneState";
 
-// Direct call — explorer API has open CORS (access-control-allow-origin: *)
-const EXPLORER_TX_URL = "https://explorer-api.testnet-chain.genlayer.com/transactions";
-const POLL_MS = 2500;
+// Same-origin proxy avoids the Explorer API's same-origin resource policy and
+// adds shared edge caching, response limits, and an upstream deadline.
+const EXPLORER_TX_URL = "/api/transactions";
+const POLL_MS = 10_000;
 const FETCH_LIMIT = 20;
 
 interface ExplorerTx {
@@ -22,11 +23,15 @@ export function useLiveFeed() {
   const addFeedTx = useSceneState((s) => s.addFeedTx);
   const seenRef = useRef<Set<string>>(new Set()); // GL TX IDs already processed
   const isRunningRef = useRef(false);
+  const failuresRef = useRef(0);
+  const nextPollAllowedRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
 
     async function poll() {
+      if (document.visibilityState === "hidden") return;
+      if (Date.now() < nextPollAllowedRef.current) return;
       if (isRunningRef.current) return;
       isRunningRef.current = true;
       try {
@@ -34,9 +39,17 @@ export function useLiveFeed() {
           `${EXPLORER_TX_URL}?limit=${FETCH_LIMIT}`,
           { signal: AbortSignal.timeout(8_000) }
         );
-        if (!res.ok || cancelled) return;
+        if (!res.ok || cancelled) {
+          if (!cancelled) {
+            failuresRef.current += 1;
+            nextPollAllowedRef.current = Date.now() + Math.min(60_000, POLL_MS * 2 ** failuresRef.current);
+          }
+          return;
+        }
+        failuresRef.current = 0;
+        nextPollAllowedRef.current = 0;
 
-        const json = await res.json();
+        const json = await res.json() as { items?: ExplorerTx[] };
         const items: ExplorerTx[] = json?.items ?? [];
 
         // Process in parallel — skip already-seen GL TX IDs
@@ -48,20 +61,21 @@ export function useLiveFeed() {
             const glId = extractGenLayerTxId(item.data);
             if (!glId) return;
             if (seenRef.current.has(glId)) return;
-            seenRef.current.add(glId);
 
             try {
               const raw = await getTransactionReceipt(glId);
               if (!raw || cancelled) return;
               const tx = parseReceipt(raw, glId, item.blockNumber);
               addFeedTx(tx);
+              seenRef.current.add(glId);
             } catch {
               // Individual receipt failures are silent — feed keeps running
             }
           })
         );
       } catch {
-        // Poll failure is silent — will retry next interval
+        failuresRef.current += 1;
+        nextPollAllowedRef.current = Date.now() + Math.min(60_000, POLL_MS * 2 ** failuresRef.current);
       } finally {
         isRunningRef.current = false;
       }

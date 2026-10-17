@@ -55,16 +55,14 @@ export default function TransactionOrb({
 
     meshRef.current.position.set(x, y, z);
 
-    // Pulse animation for intelligent orbs
-    if (tx.isIntelligent) {
-      const pulse = Math.sin(Date.now() * 0.002 + index) * 0.08 + 1.0;
-      meshRef.current.scale.setScalar(pulse);
-    }
-
-    // Hover scale
-    if (hovered || isSelected) {
-      meshRef.current.scale.multiplyScalar(1.3);
-    }
+    // Always derive scale from an absolute target. Multiplying the existing
+    // scale every frame causes hovered/selected standard orbs to grow without
+    // bound and also compounds the intelligent-orb pulse.
+    const pulse = tx.isIntelligent
+      ? Math.sin(Date.now() * 0.002 + index) * 0.08 + 1.0
+      : 1.0;
+    const interactionScale = hovered || isSelected ? 1.3 : 1.0;
+    meshRef.current.scale.setScalar(pulse * interactionScale);
   });
 
   return (
@@ -81,6 +79,10 @@ export default function TransactionOrb({
           document.body.style.cursor = "pointer";
         }}
         onPointerOut={() => {
+          setHovered(false);
+          document.body.style.cursor = "auto";
+        }}
+        onPointerCancel={() => {
           setHovered(false);
           document.body.style.cursor = "auto";
         }}
