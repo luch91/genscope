@@ -2,6 +2,8 @@
 
 3D block explorer for the GenLayer Bradbury Testnet. Visualize blocks, transactions, and AI consensus rounds in real time.
 
+**Live application:** https://genscope.genscope-explorer.workers.dev
+
 ## Stack
 
 - Next.js 16 (App Router)
@@ -41,15 +43,14 @@ npm run dev
 
 ## Cloudflare release
 
-Staging is deployed in the dedicated Free Cloudflare account `GenScope` as
-`https://genscope-staging.genscope-explorer.workers.dev`. Production is reserved
-as the separate Worker `genscope`, which will use
-`https://genscope.genscope-explorer.workers.dev`. The configuration rejects every
-other Worker name and uses separate rate-limit namespaces for staging and
-production.
+Production is deployed in the dedicated Free Cloudflare account `GenScope` as
+`https://genscope.genscope-explorer.workers.dev`. Staging remains available at
+`https://genscope-staging.genscope-explorer.workers.dev`. The configuration
+rejects every other Worker name and uses separate rate-limit namespaces for
+staging and production.
 
-After building or restoring the approved CI artifact, deploy staging with the
-default configuration. Production deployment requires release approval and:
+After building or restoring an approved CI artifact, deploy staging with the
+default configuration. An approved production deployment uses:
 
 ```powershell
 $env:CLOUDFLARE_ACCOUNT_ID = "edc43962873774a5f92249b63720bac8"

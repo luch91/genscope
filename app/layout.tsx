@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
+const productionUrl = "https://genscope.genscope-explorer.workers.dev";
+
 const jetBrainsMono = JetBrains_Mono({
   subsets: ["latin"],
   variable: "--font-jetbrains-mono",
@@ -9,9 +11,21 @@ const jetBrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(productionUrl),
   title: "GenScope — 3D GenLayer Block Explorer",
   description:
     "Real-time 3D block explorer for GenLayer Testnet Bradbury. Visualize blocks, transactions, and AI consensus in 3D.",
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    type: "website",
+    url: "/",
+    siteName: "GenScope",
+    title: "GenScope — 3D GenLayer Block Explorer",
+    description:
+      "Real-time 3D block explorer for GenLayer Testnet Bradbury. Visualize blocks, transactions, and AI consensus in 3D.",
+  },
 };
 
 export default function RootLayout({
