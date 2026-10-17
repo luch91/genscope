@@ -12,7 +12,9 @@ export type TransactionStatus =
   | "APPEAL_COMMITTING"
   | "READY_TO_FINALIZE"
   | "VALIDATORS_TIMEOUT"
-  | "LEADER_TIMEOUT";
+  | "LEADER_TIMEOUT"
+  | "LEADER_REVEALING"
+  | "UNKNOWN";
 
 export const STATUS_MAP: Record<number, TransactionStatus> = {
   0: "UNINITIALIZED",
@@ -29,7 +31,21 @@ export const STATUS_MAP: Record<number, TransactionStatus> = {
   11: "READY_TO_FINALIZE",
   12: "VALIDATORS_TIMEOUT",
   13: "LEADER_TIMEOUT",
+  14: "LEADER_REVEALING",
 };
+
+export type TransactionExecutionResult =
+  | "NOT_VOTED"
+  | "FINISHED_WITH_RETURN"
+  | "FINISHED_WITH_ERROR"
+  | "TIMEOUT"
+  | "NONDET_DISAGREE"
+  | "UNKNOWN";
+
+export type TransactionFinalizationOutcome =
+  | "FINALIZED"
+  | "CANCELED"
+  | "NOT_FINALIZED";
 
 export interface ConsensusRound {
   round: number;
@@ -67,6 +83,12 @@ export interface GenLayerTransaction {
   activator: string;
   status: TransactionStatus;
   statusCode: number;
+  rawStatus?: number | string;
+  consensusDecision?: string;
+  consensusDecisionCode?: number;
+  executionResult?: TransactionExecutionResult;
+  executionResultCode?: number;
+  finalizationOutcome?: TransactionFinalizationOutcome;
   timestamps: TransactionTimestamps;
   numOfInitialValidators: number;
   consumedValidators: string[];

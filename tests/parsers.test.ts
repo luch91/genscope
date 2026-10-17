@@ -7,7 +7,7 @@ describe("GenLayer parsing", () => {
   const authoritativeStatuses = [
     "UNINITIALIZED", "PENDING", "PROPOSING", "COMMITTING", "REVEALING", "ACCEPTED",
     "UNDETERMINED", "FINALIZED", "CANCELED", "APPEAL_REVEALING", "APPEAL_COMMITTING",
-    "READY_TO_FINALIZE", "VALIDATORS_TIMEOUT", "LEADER_TIMEOUT",
+    "READY_TO_FINALIZE", "VALIDATORS_TIMEOUT", "LEADER_TIMEOUT", "LEADER_REVEALING",
   ] as const;
 
   it("maps every authoritative GenLayer protocol status", () => {
@@ -18,10 +18,20 @@ describe("GenLayer parsing", () => {
     });
   });
 
-  it("extracts the first ABI argument as the GenLayer transaction id", () => {
+  it("extracts transaction ids only from Bradbury lifecycle selectors", () => {
     const txId = "ab".repeat(32);
-    expect(extractGenLayerTxId(`0x12345678${txId}00`)).toBe(`0x${txId}`);
+    expect(extractGenLayerTxId(`0x0a6c701b${txId}00`, "0xvalidator")).toBe(`0x${txId}`);
+    expect(extractGenLayerTxId(`0xb2efda83${txId}`, "0x0112Bf6e83497965A5fdD6Dad1E447a6E004271D")).toBe(`0x${txId}`);
+    expect(extractGenLayerTxId(`0x12345678${txId}00`, "0xcontract")).toBeNull();
+    expect(extractGenLayerTxId(`0xb2efda83${txId}`, "0xnot-consensus-main")).toBeNull();
     expect(extractGenLayerTxId("0x1234")).toBeNull();
+  });
+
+  it("preserves unknown lifecycle status codes instead of calling them uninitialized", () => {
+    const parsed = parseReceipt({ status: 99 } as RawReceipt, "0xunknown");
+    expect(parsed.status).toBe("UNKNOWN");
+    expect(parsed.statusCode).toBe(99);
+    expect(parsed.rawStatus).toBe(99);
   });
 
   it("normalizes authoritative receipt fields and consensus rounds", () => {
@@ -32,6 +42,8 @@ describe("GenLayer parsing", () => {
       recipient: "0x0000000000000000000000000000000000000002",
       activator: "0x0000000000000000000000000000000000000003",
       status: 7,
+      result: 1,
+      txExecutionResult: 1,
       timestamps: { Created: 1, Pending: 2, Activated: 3, Proposed: 4, Committed: 5, LastVote: 6 },
       numOfInitialValidators: 1,
       roundData: [{
@@ -51,7 +63,10 @@ describe("GenLayer parsing", () => {
     };
     const parsed = parseReceipt(raw, "0xhash", 42);
     expect(parsed.status).toBe("FINALIZED");
-    expect(parsed.roundData[0].result).toBe("AGREE");
+    expect(parsed.roundData[0].result).toBe("MAJORITY_AGREE");
+    expect(parsed.consensusDecision).toBe("MAJORITY_AGREE");
+    expect(parsed.executionResult).toBe("FINISHED_WITH_RETURN");
+    expect(parsed.finalizationOutcome).toBe("FINALIZED");
     expect(parsed.roundData[0].validatorVotesHash).toBe("0xvote");
     expect(parsed.eqBlocksOutputs).toBe("c0");
     expect(parsed.timestamps.Created).toBe("1970-01-01T00:00:01.000Z");
@@ -74,6 +89,8 @@ describe("GenLayer parsing", () => {
       recipient: "0x87a3e3cd3aabe3b119511ee4d5c247f43cf286f1",
       activator: "0x470aaa7de37ff3e1c2b38ed9096263ca0d541f21",
       status: 7,
+      result: 1,
+      txExecutionResult: 1,
       timestamps: { Created: 1792272573, Pending: 1792272573, Activated: 1792272574, Proposed: 1792272576, Committed: 1792272580, LastVote: 1792272582 },
       numOfInitialValidators: 5,
       roundData: [{ round: 0, leaderIndex: 4, votesCommitted: 5, votesRevealed: 5, rotationsLeft: 1, result: 1, roundValidators: validators, validatorVotes: "AQEBAQE=", validatorVotesHash: [] }],
@@ -86,7 +103,24 @@ describe("GenLayer parsing", () => {
     expect(parsed.statusCode).toBe(7);
     expect(parsed.status).toBe("FINALIZED");
     expect(parsed.roundData).toHaveLength(1);
-    expect(parsed.roundData[0]).toMatchObject({ round: 0, result: "AGREE", roundValidators: validators });
+    expect(parsed.roundData[0]).toMatchObject({ round: 0, result: "MAJORITY_AGREE", roundValidators: validators });
     expect(parsed.consumedValidators).toEqual(validators);
+    expect(parsed.consensusDecision).toBe("MAJORITY_AGREE");
+    expect(parsed.executionResult).toBe("FINISHED_WITH_RETURN");
+    expect(parsed.finalizationOutcome).toBe("FINALIZED");
+  });
+
+  it("does not confuse accepted consensus with failed execution", () => {
+    const parsed = parseReceipt({
+      status: 7,
+      result: 1,
+      txExecutionResult: 2,
+      roundData: [{ result: 1 }],
+    } as RawReceipt, "0xfailed-execution");
+
+    expect(parsed.status).toBe("FINALIZED");
+    expect(parsed.consensusDecision).toBe("MAJORITY_AGREE");
+    expect(parsed.executionResult).toBe("FINISHED_WITH_ERROR");
+    expect(parsed.finalizationOutcome).toBe("FINALIZED");
   });
 });

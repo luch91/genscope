@@ -7,8 +7,9 @@ export default function ConsensusSection({ tx }: { tx: GenLayerTransaction }) {
   const [expandedRound, setExpandedRound] = useState<number | null>(null);
   const [showValidators, setShowValidators] = useState(false);
 
-  const lastRound = tx.roundData[tx.roundData.length - 1];
-  const finalResult = lastRound?.result ?? "UNDETERMINED";
+  const consensusDecision = tx.consensusDecision ?? "UNDETERMINED";
+  const executionResult = tx.executionResult ?? "NOT_AVAILABLE";
+  const finalizationOutcome = tx.finalizationOutcome ?? "NOT_FINALIZED";
 
   return (
     <div
@@ -62,7 +63,7 @@ export default function ConsensusSection({ tx }: { tx: GenLayerTransaction }) {
         <StatCard label="Rounds" value={tx.roundData.length} />
       </div>
 
-      {/* Final result */}
+      {/* Consensus, execution, and lifecycle finalisation are separate protocol facts. */}
       <div
         style={{
           background: "rgba(255,215,0,0.08)",
@@ -75,11 +76,11 @@ export default function ConsensusSection({ tx }: { tx: GenLayerTransaction }) {
           alignItems: "center",
         }}
       >
-        <span style={{ color: "#888", fontSize: 11 }}>Final Result</span>
+        <span style={{ color: "#888", fontSize: 11 }}>Consensus Decision</span>
         <span
           style={{
             color:
-              finalResult === "AGREE" || finalResult === "AGREED"
+              consensusDecision === "MAJORITY_AGREE"
                 ? "#00FF88"
                 : "#FFD700",
             fontWeight: 700,
@@ -87,8 +88,13 @@ export default function ConsensusSection({ tx }: { tx: GenLayerTransaction }) {
             fontFamily: "'JetBrains Mono', monospace",
           }}
         >
-          {finalResult || "UNDETERMINED"}
+          {consensusDecision}
         </span>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+        <ProtocolFact label="Execution" value={executionResult} />
+        <ProtocolFact label="Finalisation" value={finalizationOutcome} />
       </div>
 
       {/* Equivalence outputs */}
@@ -324,6 +330,15 @@ function StatCard({
         {value}
       </div>
       <div style={{ color: "#666", fontSize: 9 }}>{label}</div>
+    </div>
+  );
+}
+
+function ProtocolFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid #1a1a2e", borderRadius: 6, padding: "6px 8px" }}>
+      <div style={{ color: "#666", fontSize: 9, marginBottom: 3 }}>{label}</div>
+      <div style={{ color: value === "FINISHED_WITH_RETURN" || value === "FINALIZED" ? "#00FF88" : "#FFD700", fontSize: 9, fontFamily: "'JetBrains Mono', monospace", overflowWrap: "anywhere" }}>{value}</div>
     </div>
   );
 }

@@ -148,6 +148,9 @@ export interface RawReceipt {
   activator: string;
   /** uint8 status code (0/1/5/7/8); some RPC versions return a string name */
   status:    number | string;
+  /** Consensus decision and GenVM execution outcome are independent of lifecycle status. */
+  result?: number;
+  txExecutionResult?: number;
   /** Timestamp values: actual API returns Unix epoch numbers; handle both number and string */
   timestamps: {
     Created:   number | string;

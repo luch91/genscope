@@ -58,7 +58,7 @@ export function useLiveFeed() {
             if (cancelled) return;
 
             // Extract GenLayer TX ID from the calldata (selector 4 bytes + 32-byte arg)
-            const glId = extractGenLayerTxId(item.data);
+            const glId = extractGenLayerTxId(item.data, item.to);
             if (!glId) return;
             if (seenRef.current.has(glId)) return;
 
