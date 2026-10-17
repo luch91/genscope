@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - chore/cloudflare-migration
+      - master
 
 permissions:
   contents: read
