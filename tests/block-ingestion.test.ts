@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fetchBlockBatch } from "../app/hooks/useBlocks";
+import { BlockRecoveryTracker, MAX_RECONCILE_BLOCKS_PER_POLL } from "../app/lib/block-recovery";
 import type { RawBlock } from "../app/lib/genlayer";
 
 function rawBlock(number: number): RawBlock {
@@ -49,5 +50,41 @@ describe("block ingestion recovery", () => {
 
     await fetchBlockBatch([1, 2, 3, 4, 5, 6], fetcher, 3);
     expect(peak).toBeLessThanOrEqual(3);
+  });
+
+  it("recovers hundreds of missing blocks with bounded batches and bookkeeping", () => {
+    const tracker = new BlockRecoveryTracker(0);
+    const attempts = new Map<number, number>();
+    let largestBatch = 0;
+    let largestBookkeeping = 0;
+
+    for (let poll = 0; poll < 1_000 && tracker.checkpoint < 600; poll++) {
+      const batch = tracker.plan(600);
+      largestBatch = Math.max(largestBatch, batch.length);
+      const succeeded: number[] = [];
+      const failed: number[] = [];
+      for (const height of batch) {
+        const count = (attempts.get(height) ?? 0) + 1;
+        attempts.set(height, count);
+        if (height % 7 === 0 && count < 3) failed.push(height);
+        else succeeded.push(height);
+      }
+      tracker.record(succeeded, failed);
+      largestBookkeeping = Math.max(
+        largestBookkeeping,
+        tracker.pendingCount + tracker.failedCount,
+      );
+    }
+
+    expect(tracker.checkpoint).toBe(600);
+    expect(largestBatch).toBeLessThanOrEqual(MAX_RECONCILE_BLOCKS_PER_POLL);
+    expect(largestBookkeeping).toBeLessThanOrEqual(MAX_RECONCILE_BLOCKS_PER_POLL);
+  });
+
+  it("rewinds a bounded window for chain reorganisation recovery", () => {
+    const tracker = new BlockRecoveryTracker(100);
+    tracker.rewind(95);
+    expect(tracker.checkpoint).toBe(94);
+    expect(tracker.plan(110)).toEqual(Array.from({ length: 16 }, (_, index) => 95 + index));
   });
 });

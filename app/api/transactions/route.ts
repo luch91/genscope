@@ -4,6 +4,10 @@ import { BoundedBodyError, readBoundedJsonResponse } from "../_shared/bounded-bo
 const EXPLORER_TX_URL = "https://explorer-api.testnet-chain.genlayer.com/transactions";
 const MAX_RESPONSE_BYTES = 512 * 1024;
 
+// Legacy endpoint retained for backward compatibility. The active
+// DataOrchestrator does not poll it; removal belongs in a separate maintenance
+// PR after external consumers have been checked.
+
 export async function GET(request: NextRequest) {
   const requestedLimit = Number(request.nextUrl.searchParams.get("limit") ?? "20");
   const limit = Number.isInteger(requestedLimit)

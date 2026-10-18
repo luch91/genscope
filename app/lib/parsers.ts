@@ -69,6 +69,39 @@ const VALIDATOR_WALLET_TX_ID_SELECTORS = new Set([
   "0x3bd15f70", // revealVote(bytes32,bytes32,uint8,bytes32,uint256,uint256)
 ]);
 
+export function isTerminalTransactionStatus(status: TransactionStatus): boolean {
+  // ACCEPTED is a decided consensus state, but Bradbury may still advance it
+  // to FINALIZED. Consensus success is deliberately not treated as execution.
+  return status === "FINALIZED" || status === "CANCELED";
+}
+
+type LifecycleCall = {
+  txId: string;
+  kind: "consensus-main" | "validator-wallet";
+  destination: string;
+};
+
+function decodeLifecycleCall(
+  input: string | undefined,
+  to?: string | null,
+): LifecycleCall | null {
+  if (!input || !to) return null;
+  const hex = input.startsWith("0x") ? input.slice(2) : input;
+  if (hex.length < 72) return null;
+  const selector = `0x${hex.slice(0, 8).toLowerCase()}`;
+  const destination = to.toLowerCase();
+  const kind = destination === BRADBURY_CONSENSUS_MAIN &&
+    CONSENSUS_MAIN_TX_ID_SELECTORS.has(selector)
+    ? "consensus-main"
+    : VALIDATOR_WALLET_TX_ID_SELECTORS.has(selector)
+      ? "validator-wallet"
+      : null;
+  if (!kind) return null;
+  const txId = `0x${hex.slice(8, 72)}`;
+  if (txId === `0x${"0".repeat(64)}`) return null;
+  return { txId, kind, destination };
+}
+
 /** Convert a Unix timestamp (number) or ISO string to ISO string. Returns "" if zero/absent. */
 function normalizeTs(v: number | string | undefined | null): string {
   if (v === undefined || v === null || v === "") return "";
@@ -92,24 +125,29 @@ function normalizeTs(v: number | string | undefined | null): string {
 export function extractGenLayerTxId(
   input: string | undefined,
   to?: string | null,
+  validatorWalletAddresses: Iterable<string> = [],
 ): string | null {
-  if (!input) return null;
-  const hex = input.startsWith("0x") ? input.slice(2) : input;
-  // Need at least 4-byte selector (8 hex) + 32-byte arg (64 hex) = 72 hex chars
-  if (hex.length < 72) return null;
-  const selector = `0x${hex.slice(0, 8).toLowerCase()}`;
-  const target = to?.toLowerCase();
-  const isConsensusMainCall = target === BRADBURY_CONSENSUS_MAIN &&
-    CONSENSUS_MAIN_TX_ID_SELECTORS.has(selector);
-  const isValidatorWalletCall = VALIDATOR_WALLET_TX_ID_SELECTORS.has(selector);
-  if (!isConsensusMainCall && !isValidatorWalletCall) return null;
-  const candidate = "0x" + hex.slice(8, 72);
-  if (candidate === "0x" + "0".repeat(64)) return null;
-  return candidate;
+  const call = decodeLifecycleCall(input, to);
+  if (!call) return null;
+  if (call.kind === "consensus-main") return call.txId;
+  const wallets = new Set(Array.from(validatorWalletAddresses, (address) => address.toLowerCase()));
+  return wallets.has(call.destination) ? call.txId : null;
+}
+
+export function isValidatorWalletForTransaction(
+  destination: string,
+  transaction: GenLayerTransaction,
+): boolean {
+  const normalized = destination.toLowerCase();
+  return transaction.consumedValidators.some((address) => address.toLowerCase() === normalized) ||
+    transaction.roundData.some((round) =>
+      round.roundValidators.some((address) => address.toLowerCase() === normalized),
+    );
 }
 
 export function parseBlock(raw: RawBlock): Block {
   const transactions: string[] = [];
+  const transactionContexts: NonNullable<Block["transactionContexts"]> = {};
 
   if (Array.isArray(raw.transactions)) {
     for (const tx of raw.transactions) {
@@ -118,10 +156,21 @@ export function parseBlock(raw: RawBlock): Block {
         transactions.push(tx);
       } else {
         const rawTx = tx as RawTx;
-        const glId = extractGenLayerTxId(rawTx.input, rawTx.to);
-        if (glId) {
+        const call = decodeLifecycleCall(rawTx.input, rawTx.to);
+        if (call) {
           // Store the GenLayer TX ID — this is what gen_getTransactionReceipt accepts
-          transactions.push(glId);
+          if (!transactions.includes(call.txId)) transactions.push(call.txId);
+          // ValidatorWallet calls are candidates until the receipt proves the
+          // destination is one of that transaction's protocol validators.
+          const existing = transactionContexts[call.txId];
+          if (!existing || call.kind === "consensus-main") {
+            transactionContexts[call.txId] = {
+              kind: call.kind,
+              destinations: [call.destination],
+            };
+          } else if (!existing.destinations.includes(call.destination)) {
+            existing.destinations.push(call.destination);
+          }
         }
         // Skip txs without a parseable GL TX ID (validator/system transactions)
       }
@@ -134,6 +183,7 @@ export function parseBlock(raw: RawBlock): Block {
     parentHash:     raw.parentHash,
     timestamp:      parseInt(raw.timestamp, 16),
     transactions,
+    transactionContexts,
     miner:          raw.miner,
     gasUsed:        raw.gasUsed,
     gasLimit:       raw.gasLimit,

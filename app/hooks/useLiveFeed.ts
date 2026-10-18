@@ -4,6 +4,9 @@ import { getTransactionReceipt } from "../lib/genlayer";
 import { parseReceipt, extractGenLayerTxId } from "../lib/parsers";
 import { useSceneState } from "./useSceneState";
 
+// Legacy, currently unmounted pathway. DataOrchestrator obtains the active
+// feed through useTransactions. Remove this hook and /api/transactions in a
+// separate maintenance PR after confirming no external API consumers remain.
 // Same-origin proxy avoids the Explorer API's same-origin resource policy and
 // adds shared edge caching, response limits, and an upstream deadline.
 const EXPLORER_TX_URL = "/api/transactions";

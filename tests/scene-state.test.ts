@@ -25,7 +25,10 @@ function block(number: number): Block {
 
 describe("block history and render window", () => {
   beforeEach(() => {
-    useSceneState.setState({ blocks: [], blockCache: {}, transactions: {}, incompleteReceipts: {} });
+    useSceneState.setState({
+      blocks: [], blockCache: {}, transactions: {}, feedTxs: [], incompleteReceipts: {},
+      totalTxCount: 0, intelligentTxCount: 0, activeValidators: new Set(),
+    });
   });
 
   it("keeps fetched history while rendering at most 100 blocks", () => {
@@ -108,5 +111,45 @@ describe("block history and render window", () => {
 
     useSceneState.getState().clearIncompleteReceipts(42);
     expect(useSceneState.getState().incompleteReceipts[42]).toBeUndefined();
+  });
+
+  it("upserts PENDING to ACCEPTED to FINALIZED everywhere without duplicates", () => {
+    const base = {
+      hash: "0xlifecycle", id: "0xlifecycle", txOrigin: "", sender: "", recipient: "", activator: "",
+      status: "PENDING" as const, statusCode: 1,
+      consensusDecision: undefined, executionResult: undefined,
+      finalizationOutcome: "NOT_FINALIZED" as const,
+      timestamps: { Created: "", Pending: "", Activated: "", Proposed: "", Committed: "", LastVote: "" },
+      numOfInitialValidators: 0, consumedValidators: [], roundData: [], eqBlocksOutputs: "c0",
+      txData: "", readStateBlockRange: { ActivationBlock: 0, ProcessingBlock: 0, ProposalBlock: 0 },
+      isIntelligent: false, blockNumber: 42,
+    };
+    useSceneState.getState().setBlocks([{ ...block(42), transactions: [base.hash] }]);
+
+    for (const transaction of [
+      base,
+      { ...base, status: "ACCEPTED" as const, statusCode: 5, consensusDecision: "MAJORITY_AGREE" },
+      {
+        ...base,
+        status: "FINALIZED" as const,
+        statusCode: 7,
+        consensusDecision: "MAJORITY_AGREE",
+        executionResult: "FINISHED_WITH_ERROR" as const,
+        finalizationOutcome: "FINALIZED" as const,
+      },
+    ]) {
+      useSceneState.getState().updateBlockTxDetails(42, [transaction]);
+      useSceneState.getState().addFeedTx(transaction);
+      useSceneState.getState().addTransaction(transaction);
+    }
+
+    const state = useSceneState.getState();
+    expect(state.blockCache[42].txDetails).toHaveLength(1);
+    expect(state.blockCache[42].txDetails[0].status).toBe("FINALIZED");
+    expect(state.transactions[base.hash].status).toBe("FINALIZED");
+    expect(state.transactions[base.hash].executionResult).toBe("FINISHED_WITH_ERROR");
+    expect(state.feedTxs.filter((transaction) => transaction.hash === base.hash)).toHaveLength(1);
+    expect(state.feedTxs.find((transaction) => transaction.hash === base.hash)?.status).toBe("FINALIZED");
+    expect(state.totalTxCount).toBe(1);
   });
 });

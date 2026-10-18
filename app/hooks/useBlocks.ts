@@ -4,9 +4,12 @@ import { getBlockByNumber, getLatestBlockNumber } from "../lib/genlayer";
 import { parseBlock } from "../lib/parsers";
 import { useSceneState } from "./useSceneState";
 import { BLOCK_POLL_INTERVAL, INITIAL_BLOCK_FETCH, OLDER_BLOCKS_FETCH } from "../lib/constants";
+import {
+  BlockRecoveryTracker,
+  MAX_RECONCILE_BLOCKS_PER_POLL,
+} from "../lib/block-recovery";
 
 const BLOCK_FETCH_CONCURRENCY = 5;
-const MAX_RECONCILE_BLOCKS_PER_POLL = 50;
 
 export async function fetchBlockBatch(
   blockNumbers: number[],
@@ -39,9 +42,7 @@ export async function fetchBlockBatch(
 export function useBlocks() {
   const { addBlock, setNetworkStatus, setLatestBlockNumber } = useSceneState();
   const latestKnownRef = useRef<number>(0);
-  const contiguousCheckpointRef = useRef<number>(0);
-  const fetchedNumbersRef = useRef<Set<number>>(new Set());
-  const failedBlocksRef = useRef<Set<number>>(new Set());
+  const recoveryRef = useRef(new BlockRecoveryTracker());
   const initializedRef = useRef(false);
   const consecutiveFailuresRef = useRef(0);
   const isPollingRef = useRef(false); // prevent concurrent poll calls
@@ -65,17 +66,12 @@ export function useBlocks() {
           blockNumbers.push(blockNum);
         }
         const floor = Math.min(...blockNumbers);
-        contiguousCheckpointRef.current = floor - 1;
+        recoveryRef.current = new BlockRecoveryTracker(floor - 1);
         const result = await fetchBlockBatch(blockNumbers);
         for (const block of result.blocks) {
-          fetchedNumbersRef.current.add(block.number);
           if (!cancelled) addBlock(block);
         }
-        for (const blockNumber of result.failed) failedBlocksRef.current.add(blockNumber);
-        while (fetchedNumbersRef.current.has(contiguousCheckpointRef.current + 1)) {
-          contiguousCheckpointRef.current += 1;
-          failedBlocksRef.current.delete(contiguousCheckpointRef.current);
-        }
+        recoveryRef.current.record(result.blocks.map((block) => block.number), result.failed);
       } catch (err) {
         console.error("Initial block fetch error:", err);
         setNetworkStatus("reconnecting");
@@ -93,46 +89,34 @@ export function useBlocks() {
         consecutiveFailuresRef.current = 0;
         nextPollAllowedRef.current = 0;
 
-        if (latest <= latestKnownRef.current && failedBlocksRef.current.size === 0) {
+        if (latest <= latestKnownRef.current && recoveryRef.current.checkpoint >= latest) {
           // No new blocks — still live
           setNetworkStatus("live");
           return;
         }
 
         setNetworkStatus("live");
-        const wanted = new Set<number>(failedBlocksRef.current);
-        for (let blockNum = contiguousCheckpointRef.current + 1; blockNum <= latest; blockNum++) {
-          if (!fetchedNumbersRef.current.has(blockNum)) wanted.add(blockNum);
-          if (wanted.size >= MAX_RECONCILE_BLOCKS_PER_POLL) break;
-        }
-        const result = await fetchBlockBatch([...wanted].sort((a, b) => a - b));
+        const wanted = recoveryRef.current.plan(latest, MAX_RECONCILE_BLOCKS_PER_POLL);
+        const result = await fetchBlockBatch(wanted);
+        let reorgFrom: number | null = null;
         for (const block of result.blocks) {
           const predecessor = useSceneState.getState().blockCache[block.number - 1];
           if (predecessor && block.parentHash !== predecessor.hash) {
             const reconcileFrom = Math.max(0, block.number - 6);
-            for (let height = reconcileFrom; height <= block.number; height++) {
-              fetchedNumbersRef.current.delete(height);
-              failedBlocksRef.current.add(height);
-            }
-            contiguousCheckpointRef.current = Math.min(
-              contiguousCheckpointRef.current,
-              reconcileFrom - 1,
-            );
+            reorgFrom = reorgFrom === null ? reconcileFrom : Math.min(reorgFrom, reconcileFrom);
           }
-          fetchedNumbersRef.current.add(block.number);
-          failedBlocksRef.current.delete(block.number);
           if (!cancelled) addBlock(block);
         }
-        for (const blockNumber of result.failed) failedBlocksRef.current.add(blockNumber);
-        while (fetchedNumbersRef.current.has(contiguousCheckpointRef.current + 1)) {
-          contiguousCheckpointRef.current += 1;
-          failedBlocksRef.current.delete(contiguousCheckpointRef.current);
+        if (reorgFrom !== null) {
+          recoveryRef.current.rewind(reorgFrom);
+        } else {
+          recoveryRef.current.record(result.blocks.map((block) => block.number), result.failed);
         }
         latestKnownRef.current = Math.max(latestKnownRef.current, latest);
-        if (failedBlocksRef.current.size > 0) {
+        if (recoveryRef.current.failedCount > 0) {
           console.warn("Block reconciliation pending", {
-            contiguousCheckpoint: contiguousCheckpointRef.current,
-            failedBlocks: failedBlocksRef.current.size,
+            contiguousCheckpoint: recoveryRef.current.checkpoint,
+            failedBlocks: recoveryRef.current.failedCount,
           });
         }
       } catch (err) {

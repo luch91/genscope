@@ -69,17 +69,18 @@ export const useSceneState = create<AppState>((set) => ({
 
   addFeedTx: (tx: GenLayerTransaction) => {
     set((state) => {
-      // Deduplicate by hash; newest first; cap at 80 entries
-      if (state.feedTxs.some((t) => t.hash === tx.hash)) return state;
-      // Also keep in shared transactions map so TransactionPanel can find it
-      const newTxMap = state.transactions[tx.hash]
-        ? state.transactions
-        : pruneTransactions(
-            { ...state.transactions, [tx.hash]: tx },
-            new Set([tx.hash, ...state.feedTxs.map((item) => item.hash), ...(state.selectedTxHash ? [state.selectedTxHash] : [])]),
-          );
+      // Upsert by hash so lifecycle/consensus/execution changes reach the feed
+      // and TransactionPanel without creating duplicates.
+      const existingIndex = state.feedTxs.findIndex((item) => item.hash === tx.hash);
+      const feedTxs = existingIndex === -1
+        ? [tx, ...state.feedTxs].slice(0, 80)
+        : state.feedTxs.map((item, index) => index === existingIndex ? tx : item);
+      const newTxMap = pruneTransactions(
+        { ...state.transactions, [tx.hash]: tx },
+        new Set([tx.hash, ...feedTxs.map((item) => item.hash), ...(state.selectedTxHash ? [state.selectedTxHash] : [])]),
+      );
       return {
-        feedTxs: [tx, ...state.feedTxs].slice(0, 80),
+        feedTxs,
         transactions: newTxMap,
       };
     });
@@ -140,7 +141,6 @@ export const useSceneState = create<AppState>((set) => ({
 
   addTransaction: (tx: GenLayerTransaction) => {
     set((state) => {
-      if (state.transactions[tx.hash]) return state;
       const newTxs = pruneTransactions(
         { ...state.transactions, [tx.hash]: tx },
         new Set([tx.hash, ...state.feedTxs.map((item) => item.hash), ...(state.selectedTxHash ? [state.selectedTxHash] : [])]),

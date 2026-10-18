@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { extractGenLayerTxId, parseReceipt } from "../app/lib/parsers";
+import {
+  extractGenLayerTxId,
+  isTerminalTransactionStatus,
+  isValidatorWalletForTransaction,
+  parseReceipt,
+} from "../app/lib/parsers";
 import type { RawReceipt } from "../app/lib/genlayer";
 
 describe("GenLayer parsing", () => {
@@ -20,7 +25,10 @@ describe("GenLayer parsing", () => {
 
   it("extracts transaction ids only from Bradbury lifecycle selectors", () => {
     const txId = "ab".repeat(32);
-    expect(extractGenLayerTxId(`0x0a6c701b${txId}00`, "0xvalidator")).toBe(`0x${txId}`);
+    const verifiedWallet = "0xb4fb7adc6877a6a16bd131c7c9270834bd3def34";
+    expect(extractGenLayerTxId(`0x0a6c701b${txId}00`, verifiedWallet, [verifiedWallet])).toBe(`0x${txId}`);
+    expect(extractGenLayerTxId(`0x0a6c701b${txId}00`, "0x0000000000000000000000000000000000000001", [verifiedWallet])).toBeNull();
+    expect(extractGenLayerTxId(`0x0a6c701b${txId}00`, verifiedWallet)).toBeNull();
     expect(extractGenLayerTxId(`0xb2efda83${txId}`, "0x0112Bf6e83497965A5fdD6Dad1E447a6E004271D")).toBe(`0x${txId}`);
     expect(extractGenLayerTxId(`0x12345678${txId}00`, "0xcontract")).toBeNull();
     expect(extractGenLayerTxId(`0xb2efda83${txId}`, "0xnot-consensus-main")).toBeNull();
@@ -122,5 +130,21 @@ describe("GenLayer parsing", () => {
     expect(parsed.consensusDecision).toBe("MAJORITY_AGREE");
     expect(parsed.executionResult).toBe("FINISHED_WITH_ERROR");
     expect(parsed.finalizationOutcome).toBe("FINALIZED");
+  });
+
+  it("refreshes accepted lifecycle states until a terminal state", () => {
+    expect(isTerminalTransactionStatus("PENDING")).toBe(false);
+    expect(isTerminalTransactionStatus("ACCEPTED")).toBe(false);
+    expect(isTerminalTransactionStatus("FINALIZED")).toBe(true);
+    expect(isTerminalTransactionStatus("CANCELED")).toBe(true);
+  });
+
+  it("proves a ValidatorWallet destination from authoritative receipt validators", () => {
+    const transaction = parseReceipt({
+      status: 7,
+      roundData: [{ roundValidators: ["0xB4fB7Adc6877A6A16bd131c7c9270834Bd3DEf34"] }],
+    } as RawReceipt, "0xfixture");
+    expect(isValidatorWalletForTransaction("0xb4fb7adc6877a6a16bd131c7c9270834bd3def34", transaction)).toBe(true);
+    expect(isValidatorWalletForTransaction("0x0000000000000000000000000000000000000001", transaction)).toBe(false);
   });
 });

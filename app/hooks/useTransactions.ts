@@ -1,7 +1,12 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { getBlockByNumber, getTransactionReceiptResult } from "../lib/genlayer";
-import { parseBlock, parseReceipt } from "../lib/parsers";
+import {
+  isTerminalTransactionStatus,
+  isValidatorWalletForTransaction,
+  parseBlock,
+  parseReceipt,
+} from "../lib/parsers";
 import { useSceneState } from "./useSceneState";
 
 export function useTransactions() {
@@ -80,9 +85,12 @@ export function useTransactions() {
 
       fetchingRef.current.add(block.number);
       const blockNum = block.number;
-      const alreadyResolved = new Set(block.txDetails.map((tx) => tx.hash));
+      const existing = new Map(block.txDetails.map((tx) => [tx.hash, tx]));
       const hashes = (incompleteReceipts[block.number] ?? block.transactions)
-        .filter((hash) => !alreadyResolved.has(hash));
+        .filter((hash) => {
+          const transaction = existing.get(hash);
+          return !transaction || !isTerminalTransactionStatus(transaction.status);
+        });
       if (hashes.length === 0) {
         processedRef.current.add(block.number);
         clearIncompleteReceipts(block.number);
@@ -99,17 +107,36 @@ export function useTransactions() {
         )
       )
         .then((results) => {
-          const valid = results.flatMap(({ hash, outcome }) =>
-            outcome.kind === "available"
-              ? [parseReceipt(outcome.receipt, hash, blockNum)]
-              : [],
-          );
+          const rejectedCandidates = new Set<string>();
+          const valid = results.flatMap(({ hash, outcome }) => {
+            if (outcome.kind !== "available") return [];
+            const transaction = parseReceipt(outcome.receipt, hash, blockNum);
+            const context = block.transactionContexts?.[hash];
+            if (context?.kind === "validator-wallet" &&
+                !context.destinations.some((destination) =>
+                  isValidatorWalletForTransaction(destination, transaction),
+                )) {
+              rejectedCandidates.add(hash);
+              console.warn("Rejected inconclusive ValidatorWallet lifecycle candidate", {
+                blockNumber: blockNum,
+                transactionId: hash,
+              });
+              return [];
+            }
+            return [transaction];
+          });
           if (valid.length > 0) {
             updateBlockTxDetails(blockNum, valid);
             for (const tx of valid) addFeedTx(tx);
           }
           const resolved = new Set([
-            ...valid.map((tx) => tx.hash),
+            ...valid
+              .filter((tx) => isTerminalTransactionStatus(tx.status))
+              .map((tx) => tx.hash),
+            ...rejectedCandidates,
+            // A definitive zero/not-found response is not a temporary RPC
+            // failure. Provisional calldata candidates without a GenLayer
+            // receipt are ignored rather than polled forever.
             ...results.flatMap(({ hash, outcome }) => outcome.kind === "not_found" ? [hash] : []),
           ]);
           const missing = hashes.filter((hash) => !resolved.has(hash));

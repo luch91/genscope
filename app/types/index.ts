@@ -106,6 +106,10 @@ export interface Block {
   parentHash: string;
   timestamp: number;
   transactions: string[];
+  transactionContexts?: Record<string, {
+    kind: "consensus-main" | "validator-wallet";
+    destinations: string[];
+  }>;
   miner: string;
   gasUsed: string;
   gasLimit: string;
