@@ -73,13 +73,13 @@ export default function BlockTower() {
         args={[GRID_SIZE, GRID_SIZE]}
         position={[0, towerFloor + 0.012, 0]}
         cellSize={GRID_SIZE / GRID_DIVISIONS}
-        cellThickness={0.55}
-        cellColor="#126642"
+        cellThickness={0.8}
+        cellColor="#1a9b62"
         sectionSize={4}
-        sectionThickness={1.15}
-        sectionColor="#1acb7d"
-        fadeDistance={GRID_SIZE * 0.72}
-        fadeStrength={1.25}
+        sectionThickness={1.6}
+        sectionColor="#32f39a"
+        fadeDistance={GRID_SIZE * 0.9}
+        fadeStrength={0.7}
         infiniteGrid={false}
         followCamera={false}
       />
