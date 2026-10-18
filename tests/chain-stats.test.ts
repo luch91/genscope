@@ -25,6 +25,34 @@ describe("chain statistics provenance", () => {
     expect(transactionCountPresentation(stats.totalTransactions, 2, null).network).toBe("Unavailable");
   });
 
+  it.each([
+    [98_876_305, 98_876_305],
+    [0, 0],
+    [null, null],
+    [undefined, null],
+    ["", null],
+    [false, null],
+    [-1, null],
+    [1.5, null],
+    [Number.NaN, null],
+    [Number.POSITIVE_INFINITY, null],
+    ["98876305", null],
+    [[], null],
+    [{}, null],
+  ])("validates upstream total %j without coercion", (value, expected) => {
+    const stats = normalizeChainStats({
+      lastSealedBlock: 10,
+      lastVerifiedBlock: 9,
+      ...(value === undefined ? {} : { totalTransactions: value }),
+    });
+    expect(stats.totalTransactions).toBe(expected);
+  });
+
+  it("rejects invalid mandatory block statistics", () => {
+    expect(() => normalizeChainStats({ lastSealedBlock: null, lastVerifiedBlock: 9, totalTransactions: 0 })).toThrow();
+    expect(() => normalizeChainStats({ lastSealedBlock: 10, lastVerifiedBlock: "9", totalTransactions: 0 })).toThrow();
+  });
+
   it("marks cached statistics stale after the declared freshness window", () => {
     const observedAt = "2026-10-18T10:00:00.000Z";
     expect(chainStatsFreshness(observedAt, 45, Date.parse("2026-10-18T10:00:44.000Z"))).toBe("fresh");

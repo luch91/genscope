@@ -15,7 +15,20 @@ test("loads the explorer, WebGL scene, and live APIs without client errors", asy
   await expect(page.locator("canvas")).toBeVisible();
   await expect(page.getByPlaceholder(/Search block/i)).toBeVisible();
   await expect(page.getByText(/LIVE|SYNCING|RECONNECTING/).first()).toBeVisible();
-  await expect(page.getByText(/^\d+ txs$/)).toBeVisible({ timeout: 45_000 });
+  if ((page.viewportSize()?.width ?? 1440) <= 768) {
+    // Mobile intentionally replaces the permanent desktop sidebar with a
+    // compact trigger; its count and transaction content live in the drawer.
+    const feedTrigger = page.getByRole("button", { name: /Feed/ });
+    await expect(feedTrigger).toBeVisible();
+    await feedTrigger.click();
+    const feed = page.getByLabel("Live transaction feed");
+    await expect(feed).toBeVisible();
+    await expect(feed.getByText(/^\d+ txs$/)).toBeVisible({ timeout: 45_000 });
+    await feed.getByRole("button", { name: "Close live feed" }).click();
+    await expect(feed).not.toBeVisible();
+  } else {
+    await expect(page.getByText(/^\d+ txs$/)).toBeVisible({ timeout: 45_000 });
+  }
 
   const firstPartyFailures = failedRequests.filter((url) => url.includes(new URL(page.url()).host));
   expect(firstPartyFailures).toEqual([]);

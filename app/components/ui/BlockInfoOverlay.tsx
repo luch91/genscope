@@ -1,5 +1,6 @@
 "use client";
 import { useSceneState } from "../../hooks/useSceneState";
+import { selectedBlockTransactionStats } from "../../lib/block-stats";
 
 export default function BlockInfoOverlay() {
   const { selectedBlockNumber, blocks, blockCache, setSelectedBlock } = useSceneState();
@@ -10,7 +11,8 @@ export default function BlockInfoOverlay() {
 
   if (!block) return null;
 
-  const loading = block.transactions.length > 0 && block.txDetails.length === 0;
+  const transactionStats = selectedBlockTransactionStats(block);
+  const loading = transactionStats.pending > 0;
   const intelligentCount = block.txDetails.filter((t) => t.isIntelligent).length;
   const standardCount = block.txDetails.filter((t) => !t.isIntelligent).length;
 
@@ -52,24 +54,19 @@ export default function BlockInfoOverlay() {
 
       <div style={{ width: 1, height: 32, background: "#1a1a2e" }} />
 
-      {loading ? (
-        <div
-          style={{
-            color: "#FFD700",
-            fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 11,
-          }}
-        >
-          Loading {block.transactions.length} transactions...
-        </div>
-      ) : block.transactions.length === 0 ? (
+      {transactionStats.total === 0 ? (
         <div style={{ color: "#444", fontSize: 11 }}>Empty block</div>
       ) : (
         <>
           <Stat
-            label="Selected Block Transactions"
-            value={block.txDetails.length}
+            label="Block Transactions"
+            value={transactionStats.total}
             color="#aaa"
+          />
+          <Stat
+            label={loading ? `Loaded Details · ${transactionStats.pending} pending` : "Loaded Details"}
+            value={transactionStats.loaded}
+            color={loading ? "#FFD700" : "#00FF88"}
           />
           {standardCount > 0 && (
             <Stat label="Standard" value={standardCount} color="#4488ff" />

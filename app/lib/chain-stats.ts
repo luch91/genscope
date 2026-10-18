@@ -21,8 +21,12 @@ export interface ChainStatsPayload {
 }
 
 function nonNegativeInteger(value: unknown): number | null {
-  const number = typeof value === "number" ? value : Number(value);
-  return Number.isSafeInteger(number) && number >= 0 ? number : null;
+  // The deployed explorer API contract currently returns JSON numbers. Do not
+  // coerce strings or other JSON types: Number(null/false/"") all become zero
+  // and would turn invalid upstream data into a legitimate network count.
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : null;
 }
 
 export function normalizeChainStats(
