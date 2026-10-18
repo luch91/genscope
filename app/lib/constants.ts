@@ -25,6 +25,9 @@ export const BLOCK_DEPTH = 2.5;
 // The former 80px-in-world gap visually collapsed once bloom was applied.
 export const BLOCK_GAP = 0.22;
 export const BLOCK_STEP = BLOCK_HEIGHT + BLOCK_GAP;
+export const GRID_SIZE = 32;
+export const GRID_DIVISIONS = 32;
+export const GRID_FLOOR_CLEARANCE = 0.14;
 export const MAX_VISIBLE_BLOCKS = 100;
 export const OLDER_BLOCKS_FETCH = 20;
 

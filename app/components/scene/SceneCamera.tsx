@@ -22,6 +22,21 @@ export default function SceneCamera() {
     reducedMotionRef.current = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   }, [camera]);
 
+  // Keep the hydrated tower and its floor in one readable composition. This
+  // runs only when the retained block window or viewport width changes.
+  useEffect(() => {
+    if (selectedBlockNumber !== null) return;
+    const towerHeight = Math.max(0, blocks.length - 1) * BLOCK_STEP;
+    const midpoint = -towerHeight / 2;
+    const distance = Math.max(size.width < 600 ? 12 : 10, towerHeight * 1.05 + 7);
+    targetRef.current.set(0, midpoint, 0);
+    positionRef.current.set(
+      size.width < 600 ? distance * 0.58 : distance * 0.64,
+      midpoint + Math.max(3.5, towerHeight * 0.22),
+      distance,
+    );
+  }, [blocks.length, selectedBlockNumber, size.width]);
+
   // Animate camera when selection changes
   useEffect(() => {
     if (selectedBlockNumber !== null) {
@@ -35,8 +50,15 @@ export default function SceneCamera() {
         positionRef.current.set(distance * 0.72, blockY + 2.6, distance);
       }
     } else {
-      targetRef.current.set(0, -2.5, 0);
-      positionRef.current.set(size.width < 600 ? 7.5 : 7, 2, size.width < 600 ? 12 : 10);
+      const towerHeight = Math.max(0, blocks.length - 1) * BLOCK_STEP;
+      const midpoint = -towerHeight / 2;
+      const distance = Math.max(size.width < 600 ? 12 : 10, towerHeight * 1.05 + 7);
+      targetRef.current.set(0, midpoint, 0);
+      positionRef.current.set(
+        size.width < 600 ? distance * 0.58 : distance * 0.64,
+        midpoint + Math.max(3.5, towerHeight * 0.22),
+        distance,
+      );
     }
   }, [selectedBlockNumber, blocks, size.width]);
 
