@@ -25,8 +25,11 @@ export const BLOCK_DEPTH = 2.5;
 // The former 80px-in-world gap visually collapsed once bloom was applied.
 export const BLOCK_GAP = 0.22;
 export const BLOCK_STEP = BLOCK_HEIGHT + BLOCK_GAP;
-export const GRID_SIZE = 32;
-export const GRID_DIVISIONS = 32;
+// One shader-based grid spans the scene; increasing this footprint does not
+// create additional meshes or geometry subdivisions.
+export const GRID_SIZE = 160;
+export const GRID_CELL_SIZE = 1;
+export const GRID_FADE_DISTANCE = 78;
 export const GRID_FLOOR_CLEARANCE = 0.14;
 export const MAX_VISIBLE_BLOCKS = 100;
 export const OLDER_BLOCKS_FETCH = 20;
