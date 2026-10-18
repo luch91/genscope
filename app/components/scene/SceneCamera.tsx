@@ -28,7 +28,7 @@ export default function SceneCamera() {
     if (selectedBlockNumber !== null) return;
     const towerHeight = Math.max(0, blocks.length - 1) * BLOCK_STEP;
     const midpoint = -towerHeight / 2;
-    const distance = Math.max(size.width < 600 ? 12 : 10, towerHeight * 1.05 + 7);
+    const distance = Math.max(size.width < 600 ? 13 : 11, towerHeight * 1.35 + 9);
     targetRef.current.set(0, midpoint, 0);
     positionRef.current.set(
       size.width < 600 ? distance * 0.58 : distance * 0.64,
@@ -52,7 +52,7 @@ export default function SceneCamera() {
     } else {
       const towerHeight = Math.max(0, blocks.length - 1) * BLOCK_STEP;
       const midpoint = -towerHeight / 2;
-      const distance = Math.max(size.width < 600 ? 12 : 10, towerHeight * 1.05 + 7);
+      const distance = Math.max(size.width < 600 ? 13 : 11, towerHeight * 1.35 + 9);
       targetRef.current.set(0, midpoint, 0);
       positionRef.current.set(
         size.width < 600 ? distance * 0.58 : distance * 0.64,

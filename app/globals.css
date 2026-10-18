@@ -24,16 +24,16 @@
   position: absolute;
   left: -30%;
   right: -30%;
-  bottom: -28%;
-  height: 68%;
+  bottom: -4%;
+  height: 52%;
   background-image:
     linear-gradient(rgba(40, 240, 148, 0.38) 1px, transparent 1px),
     linear-gradient(90deg, rgba(40, 240, 148, 0.38) 1px, transparent 1px);
   background-size: 44px 44px;
-  transform: perspective(520px) rotateX(62deg);
+  transform: perspective(520px) rotateX(54deg) scale(1.35);
   transform-origin: bottom center;
-  mask-image: linear-gradient(to top, #000 35%, transparent 100%);
-  opacity: 0.72;
+  mask-image: linear-gradient(to top, #000 45%, transparent 100%);
+  opacity: 0.88;
 }
 
 .scene-bootstrap__status {
