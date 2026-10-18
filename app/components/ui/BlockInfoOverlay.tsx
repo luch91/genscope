@@ -2,10 +2,10 @@
 import { useSceneState } from "../../hooks/useSceneState";
 
 export default function BlockInfoOverlay() {
-  const { selectedBlockNumber, blocks, setSelectedBlock } = useSceneState();
+  const { selectedBlockNumber, blocks, blockCache, setSelectedBlock } = useSceneState();
 
   const block = selectedBlockNumber != null
-    ? blocks.find((b) => b.number === selectedBlockNumber)
+    ? blocks.find((b) => b.number === selectedBlockNumber) ?? blockCache[selectedBlockNumber]
     : null;
 
   if (!block) return null;

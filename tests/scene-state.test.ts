@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { useSceneState } from "../app/hooks/useSceneState";
+import {
+  MAX_CACHED_BLOCKS,
+  MAX_INCOMPLETE_BLOCKS,
+  useSceneState,
+} from "../app/hooks/useSceneState";
 import type { Block } from "../app/types";
 
 function block(number: number): Block {
@@ -58,6 +62,30 @@ describe("block history and render window", () => {
 
     expect(useSceneState.getState().blocks.find((item) => item.number === 10)?.hash).toBe("0xcanonical");
     expect(useSceneState.getState().blockCache[10].hash).toBe("0xcanonical");
+  });
+
+  it("moves a cached historical search result into the visible scene", () => {
+    useSceneState.getState().setBlocks(Array.from({ length: 120 }, (_, index) => block(1_000 - index)));
+    const historical = useSceneState.getState().blockCache[881];
+    expect(useSceneState.getState().blocks.some((item) => item.number === 881)).toBe(false);
+
+    useSceneState.getState().setSelectedBlock(historical.number);
+
+    expect(useSceneState.getState().selectedBlockNumber).toBe(881);
+    expect(useSceneState.getState().blocks[0].number).toBe(881);
+    expect(useSceneState.getState().blocks).toHaveLength(100);
+  });
+
+  it("bounds historical and unresolved-receipt retention", () => {
+    useSceneState.getState().setBlocks(
+      Array.from({ length: MAX_CACHED_BLOCKS + 100 }, (_, index) => block(index + 1)),
+    );
+    expect(Object.keys(useSceneState.getState().blockCache)).toHaveLength(MAX_CACHED_BLOCKS);
+
+    for (let index = 0; index < MAX_INCOMPLETE_BLOCKS + 20; index++) {
+      useSceneState.getState().setIncompleteReceipts(index, [`0x${index}`]);
+    }
+    expect(Object.keys(useSceneState.getState().incompleteReceipts)).toHaveLength(MAX_INCOMPLETE_BLOCKS);
   });
 
   it("merges partial receipts in cached blocks and preserves recovery state", () => {
