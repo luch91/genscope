@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fetchBlockBatch } from "../app/hooks/useBlocks";
+import { fetchBlockBatch, sortBlocksForReconciliation } from "../app/hooks/useBlocks";
 import { BlockRecoveryTracker, MAX_RECONCILE_BLOCKS_PER_POLL } from "../app/lib/block-recovery";
 import type { RawBlock } from "../app/lib/genlayer";
 
@@ -86,5 +86,24 @@ describe("block ingestion recovery", () => {
     tracker.rewind(95);
     expect(tracker.checkpoint).toBe(94);
     expect(tracker.plan(110)).toEqual(Array.from({ length: 16 }, (_, index) => 95 + index));
+  });
+
+  it("reconciles a multi-block reorganisation in canonical height order", () => {
+    const tracker = new BlockRecoveryTracker(502);
+    tracker.rewind(500);
+    expect(tracker.plan(502)).toEqual([500, 501, 502]);
+
+    const replacements = sortBlocksForReconciliation([
+      { number: 502, hash: "0xb502" },
+      { number: 500, hash: "0xb500" },
+      { number: 501, hash: "0xb501" },
+    ]);
+    tracker.record(replacements.map((item) => item.number), []);
+
+    expect(replacements.map((item) => item.number)).toEqual([500, 501, 502]);
+    expect(new Set(replacements.map((item) => item.hash)).size).toBe(3);
+    expect(tracker.checkpoint).toBe(502);
+    expect(tracker.pendingCount).toBe(0);
+    expect(tracker.failedCount).toBe(0);
   });
 });

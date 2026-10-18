@@ -4,7 +4,8 @@ import {
   MAX_INCOMPLETE_BLOCKS,
   useSceneState,
 } from "../app/hooks/useSceneState";
-import type { Block } from "../app/types";
+import type { Block, GenLayerTransaction } from "../app/types";
+import { receiptProcessingKey } from "../app/hooks/useTransactions";
 
 function block(number: number): Block {
   return {
@@ -20,6 +21,17 @@ function block(number: number): Block {
     hasIntelligent: false,
     hasStandard: false,
     addedAt: number,
+  };
+}
+
+function transaction(hash: string, blockNumber: number): GenLayerTransaction {
+  return {
+    hash, id: hash, txOrigin: "", sender: "", recipient: "", activator: "",
+    status: "FINALIZED", statusCode: 7, finalizationOutcome: "FINALIZED",
+    timestamps: { Created: "", Pending: "", Activated: "", Proposed: "", Committed: "", LastVote: "" },
+    numOfInitialValidators: 0, consumedValidators: [], roundData: [], eqBlocksOutputs: "c0",
+    txData: "", readStateBlockRange: { ActivationBlock: 0, ProcessingBlock: 0, ProposalBlock: 0 },
+    isIntelligent: false, blockNumber,
   };
 }
 
@@ -102,7 +114,7 @@ describe("block history and render window", () => {
       txData: "", readStateBlockRange: { ActivationBlock: 0, ProcessingBlock: 0, ProposalBlock: 0 },
       isIntelligent: false, blockNumber: 42,
     };
-    useSceneState.getState().updateBlockTxDetails(42, [transaction]);
+    useSceneState.getState().updateBlockTxDetails(42, historical.hash, [transaction]);
     useSceneState.getState().setIncompleteReceipts(42, ["0xb"]);
     useSceneState.setState({ blocks: [] });
 
@@ -138,9 +150,12 @@ describe("block history and render window", () => {
         finalizationOutcome: "FINALIZED" as const,
       },
     ]) {
-      useSceneState.getState().updateBlockTxDetails(42, [transaction]);
-      useSceneState.getState().addFeedTx(transaction);
-      useSceneState.getState().addTransaction(transaction);
+      useSceneState.getState().updateBlockTxDetails(
+        42,
+        useSceneState.getState().blockCache[42].hash,
+        [transaction],
+        true,
+      );
     }
 
     const state = useSceneState.getState();
@@ -151,5 +166,93 @@ describe("block history and render window", () => {
     expect(state.feedTxs.filter((transaction) => transaction.hash === base.hash)).toHaveLength(1);
     expect(state.feedTxs.find((transaction) => transaction.hash === base.hash)?.status).toBe("FINALIZED");
     expect(state.totalTxCount).toBe(1);
+  });
+
+  it("replaces a same-height block and hydrates only its canonical transaction", () => {
+    const blockA = { ...block(500), hash: "0xblock-a", transactions: ["0xtx-x"] };
+    const blockB = { ...block(500), hash: "0xblock-b", transactions: ["0xtx-y"] };
+    const txX = transaction("0xtx-x", 500);
+    const txY = transaction("0xtx-y", 500);
+
+    useSceneState.getState().setBlocks([blockA]);
+    useSceneState.getState().updateBlockTxDetails(500, blockA.hash, [txX], true);
+    useSceneState.getState().setSelectedTx(txX.hash);
+    useSceneState.getState().setIncompleteReceipts(500, [txX.hash]);
+    useSceneState.getState().addBlock(blockB);
+    useSceneState.getState().updateBlockTxDetails(500, blockB.hash, [txY], true);
+
+    const state = useSceneState.getState();
+    expect(state.blockCache[500]).toMatchObject({ hash: blockB.hash, transactions: [txY.hash] });
+    expect(state.blockCache[500].txDetails.map((tx) => tx.hash)).toEqual([txY.hash]);
+    expect(state.transactions[txX.hash]).toBeUndefined();
+    expect(state.transactions[txY.hash]).toBeDefined();
+    expect(state.feedTxs.map((tx) => tx.hash)).toEqual([txY.hash]);
+    expect(state.selectedTxHash).toBeNull();
+    expect(state.incompleteReceipts[500]).toBeUndefined();
+    expect(receiptProcessingKey(blockA)).not.toBe(receiptProcessingKey(blockB));
+  });
+
+  it("rejects an in-flight receipt batch for an orphaned block hash", () => {
+    const blockA = { ...block(500), hash: "0xblock-a", transactions: ["0xtx-x"] };
+    const blockB = { ...block(500), hash: "0xblock-b", transactions: ["0xtx-y"] };
+    const txX = transaction("0xtx-x", 500);
+    const txY = transaction("0xtx-y", 500);
+    useSceneState.getState().setBlocks([blockA]);
+    useSceneState.getState().addBlock(blockB);
+    useSceneState.getState().updateBlockTxDetails(500, blockB.hash, [txY], true);
+
+    // Simulates block A's older request resolving after block B became canonical.
+    useSceneState.getState().updateBlockTxDetails(500, blockA.hash, [txX], true);
+
+    const state = useSceneState.getState();
+    expect(state.blockCache[500].hash).toBe(blockB.hash);
+    expect(state.blockCache[500].txDetails.map((tx) => tx.hash)).toEqual([txY.hash]);
+    expect(state.transactions[txX.hash]).toBeUndefined();
+    expect(state.feedTxs.map((tx) => tx.hash)).toEqual([txY.hash]);
+  });
+
+  it("removes stale transactions across a consecutive multi-block reorganisation", () => {
+    const oldBlocks = [500, 501, 502].map((height) => ({
+      ...block(height),
+      hash: `0xold-${height}`,
+      parentHash: height === 500 ? "0xparent" : `0xold-${height - 1}`,
+      transactions: [`0xold-tx-${height}`],
+    }));
+    useSceneState.getState().setBlocks(oldBlocks);
+    for (const oldBlock of oldBlocks) {
+      useSceneState.getState().updateBlockTxDetails(
+        oldBlock.number,
+        oldBlock.hash,
+        [transaction(oldBlock.transactions[0], oldBlock.number)],
+        true,
+      );
+    }
+
+    const replacements = [500, 501, 502].map((height) => ({
+      ...block(height),
+      hash: `0xnew-${height}`,
+      parentHash: height === 500 ? "0xparent" : `0xnew-${height - 1}`,
+      transactions: [`0xnew-tx-${height}`],
+    }));
+    for (const replacement of replacements) {
+      useSceneState.getState().addBlock(replacement);
+      useSceneState.getState().updateBlockTxDetails(
+        replacement.number,
+        replacement.hash,
+        [transaction(replacement.transactions[0], replacement.number)],
+        true,
+      );
+    }
+
+    const state = useSceneState.getState();
+    expect([500, 501, 502].map((height) => state.blockCache[height].hash)).toEqual(
+      replacements.map((replacement) => replacement.hash),
+    );
+    expect(Object.keys(state.transactions).sort()).toEqual(
+      replacements.map((replacement) => replacement.transactions[0]).sort(),
+    );
+    expect(state.feedTxs).toHaveLength(3);
+    expect(new Set(state.feedTxs.map((tx) => tx.hash)).size).toBe(3);
+    expect(state.totalTxCount).toBe(3);
   });
 });

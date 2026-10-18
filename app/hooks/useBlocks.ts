@@ -11,6 +11,10 @@ import {
 
 const BLOCK_FETCH_CONCURRENCY = 5;
 
+export function sortBlocksForReconciliation<T extends { number: number }>(blocks: T[]): T[] {
+  return [...blocks].sort((a, b) => a.number - b.number);
+}
+
 export async function fetchBlockBatch(
   blockNumbers: number[],
   fetcher = getBlockByNumber,
@@ -68,7 +72,7 @@ export function useBlocks() {
         const floor = Math.min(...blockNumbers);
         recoveryRef.current = new BlockRecoveryTracker(floor - 1);
         const result = await fetchBlockBatch(blockNumbers);
-        for (const block of result.blocks) {
+        for (const block of sortBlocksForReconciliation(result.blocks)) {
           if (!cancelled) addBlock(block);
         }
         recoveryRef.current.record(result.blocks.map((block) => block.number), result.failed);
@@ -99,7 +103,8 @@ export function useBlocks() {
         const wanted = recoveryRef.current.plan(latest, MAX_RECONCILE_BLOCKS_PER_POLL);
         const result = await fetchBlockBatch(wanted);
         let reorgFrom: number | null = null;
-        for (const block of result.blocks) {
+        const canonicalBlocks = sortBlocksForReconciliation(result.blocks);
+        for (const block of canonicalBlocks) {
           const predecessor = useSceneState.getState().blockCache[block.number - 1];
           if (predecessor && block.parentHash !== predecessor.hash) {
             const reconcileFrom = Math.max(0, block.number - 6);
@@ -110,7 +115,7 @@ export function useBlocks() {
         if (reorgFrom !== null) {
           recoveryRef.current.rewind(reorgFrom);
         } else {
-          recoveryRef.current.record(result.blocks.map((block) => block.number), result.failed);
+          recoveryRef.current.record(canonicalBlocks.map((block) => block.number), result.failed);
         }
         latestKnownRef.current = Math.max(latestKnownRef.current, latest);
         if (recoveryRef.current.failedCount > 0) {

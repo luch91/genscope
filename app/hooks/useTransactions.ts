@@ -9,6 +9,10 @@ import {
 } from "../lib/parsers";
 import { useSceneState } from "./useSceneState";
 
+export function receiptProcessingKey(block: { number: number; hash: string }): string {
+  return `${block.number}:${block.hash.toLowerCase()}`;
+}
+
 export function useTransactions() {
   const blocks = useSceneState((s) => s.blocks);
   const blockCache = useSceneState((s) => s.blockCache);
@@ -16,15 +20,14 @@ export function useTransactions() {
   const updateBlockTxDetails = useSceneState((s) => s.updateBlockTxDetails);
   const setIncompleteReceipts = useSceneState((s) => s.setIncompleteReceipts);
   const clearIncompleteReceipts = useSceneState((s) => s.clearIncompleteReceipts);
-  const addFeedTx = useSceneState((s) => s.addFeedTx);
 
   // fetchingRef: blocks whose transactions are currently being fetched
   // processedRef: blocks we've already attempted (prevents infinite retries when
   //   some txs legitimately return null — e.g. receipts not yet available)
-  const fetchingRef = useRef<Set<number>>(new Set());
-  const processedRef = useRef<Set<number>>(new Set());
-  const attemptsRef = useRef<Map<number, number>>(new Map());
-  const retryTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+  const fetchingRef = useRef<Set<string>>(new Set());
+  const processedRef = useRef<Set<string>>(new Set());
+  const attemptsRef = useRef<Map<string, number>>(new Map());
+  const retryTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const [, triggerRetry] = useState(0);
   const recoveryHydratedRef = useRef(false);
 
@@ -69,6 +72,20 @@ export function useTransactions() {
   }, [incompleteReceipts]);
 
   useEffect(() => {
+    const activeKeys = new Set(Object.values(blockCache).map(receiptProcessingKey));
+    for (const key of processedRef.current) {
+      if (!activeKeys.has(key)) processedRef.current.delete(key);
+    }
+    for (const key of attemptsRef.current.keys()) {
+      if (!activeKeys.has(key)) attemptsRef.current.delete(key);
+    }
+    for (const [key, timer] of retryTimersRef.current) {
+      if (!activeKeys.has(key)) {
+        clearTimeout(timer);
+        retryTimersRef.current.delete(key);
+      }
+    }
+
     const candidates = new Map(blocks.map((block) => [block.number, block]));
     for (const blockNumber of Object.keys(incompleteReceipts).map(Number)) {
       const cached = blockCache[blockNumber];
@@ -76,23 +93,28 @@ export function useTransactions() {
     }
 
     for (const block of candidates.values()) {
-      if (fetchingRef.current.has(block.number)) continue;
-      if (processedRef.current.has(block.number)) continue;
+      const processingKey = receiptProcessingKey(block);
+      if (fetchingRef.current.has(processingKey)) continue;
+      if (processedRef.current.has(processingKey)) continue;
       if (block.transactions.length === 0) {
-        processedRef.current.add(block.number);
+        processedRef.current.add(processingKey);
         continue;
       }
 
-      fetchingRef.current.add(block.number);
+      fetchingRef.current.add(processingKey);
       const blockNum = block.number;
+      const blockHash = block.hash;
       const existing = new Map(block.txDetails.map((tx) => [tx.hash, tx]));
-      const hashes = (incompleteReceipts[block.number] ?? block.transactions)
+      const persistedHashes = (incompleteReceipts[block.number] ?? [])
+        .filter((hash) => block.transactions.includes(hash));
+      const hashes = (persistedHashes.length > 0 ? persistedHashes : block.transactions)
         .filter((hash) => {
           const transaction = existing.get(hash);
           return !transaction || !isTerminalTransactionStatus(transaction.status);
         });
       if (hashes.length === 0) {
-        processedRef.current.add(block.number);
+        processedRef.current.add(processingKey);
+        fetchingRef.current.delete(processingKey);
         clearIncompleteReceipts(block.number);
         continue;
       }
@@ -107,6 +129,8 @@ export function useTransactions() {
         )
       )
         .then((results) => {
+          if (useSceneState.getState().blockCache[blockNum]?.hash !== blockHash) return;
+
           const rejectedCandidates = new Set<string>();
           const valid = results.flatMap(({ hash, outcome }) => {
             if (outcome.kind !== "available") return [];
@@ -126,8 +150,7 @@ export function useTransactions() {
             return [transaction];
           });
           if (valid.length > 0) {
-            updateBlockTxDetails(blockNum, valid);
-            for (const tx of valid) addFeedTx(tx);
+            updateBlockTxDetails(blockNum, blockHash, valid, true);
           }
           const resolved = new Set([
             ...valid
@@ -141,8 +164,8 @@ export function useTransactions() {
           ]);
           const missing = hashes.filter((hash) => !resolved.has(hash));
           if (missing.length === 0) {
-            processedRef.current.add(blockNum);
-            attemptsRef.current.delete(blockNum);
+            processedRef.current.add(processingKey);
+            attemptsRef.current.delete(processingKey);
             clearIncompleteReceipts(blockNum);
             return;
           }
@@ -154,10 +177,10 @@ export function useTransactions() {
             return counts;
           }, {});
 
-          const attempts = (attemptsRef.current.get(blockNum) ?? 0) + 1;
-          attemptsRef.current.set(blockNum, attempts);
+          const attempts = (attemptsRef.current.get(processingKey) ?? 0) + 1;
+          attemptsRef.current.set(processingKey, attempts);
           if (attempts >= 5) {
-            attemptsRef.current.set(blockNum, 0);
+            attemptsRef.current.set(processingKey, 0);
             console.warn("Receipt fetch exhausted retry budget", {
               blockNumber: blockNum,
               missingReceipts: missing.length,
@@ -168,14 +191,16 @@ export function useTransactions() {
 
           const delay = attempts >= 5 ? 60_000 : Math.min(30_000, 2_000 * 2 ** (attempts - 1));
           const timer = setTimeout(() => {
-            retryTimersRef.current.delete(blockNum);
-            triggerRetry((value) => value + 1);
+            retryTimersRef.current.delete(processingKey);
+            if (useSceneState.getState().blockCache[blockNum]?.hash === blockHash) {
+              triggerRetry((value) => value + 1);
+            }
           }, delay);
-          retryTimersRef.current.set(blockNum, timer);
+          retryTimersRef.current.set(processingKey, timer);
         })
         .catch(() => {})
         .finally(() => {
-          fetchingRef.current.delete(blockNum);
+          fetchingRef.current.delete(processingKey);
         });
     }
 
@@ -183,7 +208,7 @@ export function useTransactions() {
       // Timers are intentionally retained between block-list updates; they are
       // cleared only when the hook unmounts by the dedicated cleanup below.
     };
-  }, [blocks, blockCache, incompleteReceipts, updateBlockTxDetails, setIncompleteReceipts, clearIncompleteReceipts, addFeedTx]);
+  }, [blocks, blockCache, incompleteReceipts, updateBlockTxDetails, setIncompleteReceipts, clearIncompleteReceipts]);
 
   useEffect(() => () => {
     for (const timer of retryTimersRef.current.values()) clearTimeout(timer);

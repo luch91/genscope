@@ -160,7 +160,12 @@ export interface AppState {
   setVerifiedBlockNumber: (n: number) => void;
   setChainTxCount: (n: number) => void;
   setLoadingOlder: (loading: boolean) => void;
-  updateBlockTxDetails: (blockNumber: number, txs: GenLayerTransaction[]) => void;
+  updateBlockTxDetails: (
+    blockNumber: number,
+    blockHash: string,
+    txs: GenLayerTransaction[],
+    publishToFeed?: boolean,
+  ) => void;
   setIncompleteReceipts: (blockNumber: number, hashes: string[]) => void;
   clearIncompleteReceipts: (blockNumber: number) => void;
 }

@@ -49,6 +49,27 @@ function validatorsFromTransactions(transactions: Record<string, GenLayerTransac
   return validators;
 }
 
+function transactionHashesForBlock(block: Block | undefined): Set<string> {
+  if (!block) return new Set();
+  return new Set([
+    ...block.transactions,
+    ...block.txDetails.map((transaction) => transaction.hash),
+  ]);
+}
+
+function referencedTransactionHashes(
+  blockCache: Record<number, Block>,
+  excludedHeight: number,
+  replacement: Block,
+): Set<string> {
+  const referenced = transactionHashesForBlock(replacement);
+  for (const block of Object.values(blockCache)) {
+    if (block.number === excludedHeight) continue;
+    for (const hash of transactionHashesForBlock(block)) referenced.add(hash);
+  }
+  return referenced;
+}
+
 export const useSceneState = create<AppState>((set) => ({
   blocks: [],
   blockCache: {},
@@ -88,22 +109,69 @@ export const useSceneState = create<AppState>((set) => ({
 
   addBlock: (block: Block) => {
     set((state) => {
+      const previous = state.blockCache[block.number];
+      const isReplacement = previous !== undefined && previous.hash !== block.hash;
+      const orphaned = new Set<string>();
+      if (isReplacement) {
+        const stillReferenced = referencedTransactionHashes(state.blockCache, block.number, block);
+        for (const hash of transactionHashesForBlock(previous)) {
+          if (!stillReferenced.has(hash)) orphaned.add(hash);
+        }
+      }
+
+      let transactions = state.transactions;
+      let feedTxs = state.feedTxs;
+      let selectedTxHash = state.selectedTxHash;
+      let incompleteReceipts = state.incompleteReceipts;
+      if (isReplacement) {
+        transactions = Object.fromEntries(
+          Object.entries(state.transactions).filter(([hash]) => !orphaned.has(hash)),
+        );
+        feedTxs = state.feedTxs.filter((transaction) => !orphaned.has(transaction.hash));
+        selectedTxHash = state.selectedTxHash && orphaned.has(state.selectedTxHash)
+          ? null
+          : state.selectedTxHash;
+        if (block.number in state.incompleteReceipts) {
+          incompleteReceipts = { ...state.incompleteReceipts };
+          delete incompleteReceipts[block.number];
+        }
+      }
+
       const blockCache = pruneBlockCache(
         { ...state.blockCache, [block.number]: block },
         new Set([...state.blocks.map((item) => item.number), block.number, ...(state.selectedBlockNumber === null ? [] : [state.selectedBlockNumber])]),
       );
       if (state.blocks.find((b) => b.number === block.number)) {
+        const allTxs = Object.values(transactions);
         return {
           blockCache,
           blocks: state.blocks.map((existing) =>
             existing.number === block.number ? block : existing,
           ),
+          transactions,
+          feedTxs,
+          selectedTxHash,
+          incompleteReceipts,
+          totalTxCount: allTxs.length,
+          intelligentTxCount: allTxs.filter((transaction) => transaction.isIntelligent).length,
+          activeValidators: validatorsFromTransactions(transactions),
         };
       }
       const newBlocks = [block, ...state.blocks]
         .sort((a, b) => b.number - a.number)
         .slice(0, MAX_VISIBLE_BLOCKS);
-      return { blocks: newBlocks, blockCache };
+      const allTxs = Object.values(transactions);
+      return {
+        blocks: newBlocks,
+        blockCache,
+        transactions,
+        feedTxs,
+        selectedTxHash,
+        incompleteReceipts,
+        totalTxCount: allTxs.length,
+        intelligentTxCount: allTxs.filter((transaction) => transaction.isIntelligent).length,
+        activeValidators: validatorsFromTransactions(transactions),
+      };
     });
   },
 
@@ -196,11 +264,20 @@ export const useSceneState = create<AppState>((set) => ({
     set({ loadingOlder: loading });
   },
 
-  updateBlockTxDetails: (blockNumber: number, txs: GenLayerTransaction[]) => {
+  updateBlockTxDetails: (
+    blockNumber: number,
+    blockHash: string,
+    txs: GenLayerTransaction[],
+    publishToFeed = false,
+  ) => {
     set((state) => {
+      // A receipt request may finish after a reorganisation. Commit the batch
+      // only when it still belongs to the canonical block identity.
+      const cachedBlock = state.blockCache[blockNumber];
+      if (!cachedBlock || cachedBlock.hash !== blockHash) return state;
+
       // Deduplicate by hash (last write wins for metadata, keeps order stable)
       const txMap = new Map<string, GenLayerTransaction>();
-      const cachedBlock = state.blockCache[blockNumber];
       cachedBlock?.txDetails.forEach((tx) => txMap.set(tx.hash, tx));
       txs.forEach((tx) => txMap.set(tx.hash, tx));
       const dedupedTxs = Array.from(txMap.values());
@@ -224,6 +301,20 @@ export const useSceneState = create<AppState>((set) => ({
 
       const allTxs = Object.values(newTxMap);
       const intelligentCount = allTxs.filter((t) => t.isIntelligent).length;
+      let feedTxs = state.feedTxs;
+      if (publishToFeed) {
+        const refreshedHashes = new Set(txs.map((transaction) => transaction.hash));
+        feedTxs = state.feedTxs.map((transaction) =>
+          refreshedHashes.has(transaction.hash)
+            ? (txMap.get(transaction.hash) ?? transaction)
+            : transaction,
+        );
+        for (const transaction of txs) {
+          if (!feedTxs.some((item) => item.hash === transaction.hash)) {
+            feedTxs.unshift(transaction);
+          }
+        }
+      }
 
       return {
         blocks: newBlocks,
@@ -234,6 +325,7 @@ export const useSceneState = create<AppState>((set) => ({
             : state.blockCache,
         ),
         transactions: newTxMap,
+        feedTxs: feedTxs.slice(0, 80),
         totalTxCount: allTxs.length,
         intelligentTxCount: intelligentCount,
         activeValidators: validatorsFromTransactions(newTxMap),
