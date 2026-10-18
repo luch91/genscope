@@ -84,7 +84,9 @@ export const useSceneState = create<AppState>((set) => ({
   activeValidators: new Set<string>(),
   latestBlockNumber: 0,
   verifiedBlockNumber: 0,
-  chainTxCount: 0,
+  chainTxCount: null,
+  chainStatsObservedAt: null,
+  chainStatsFreshness: "unavailable",
   loadingOlder: false,
   incompleteReceipts: {},
 
@@ -256,8 +258,8 @@ export const useSceneState = create<AppState>((set) => ({
     set({ verifiedBlockNumber: n });
   },
 
-  setChainTxCount: (n: number) => {
-    set({ chainTxCount: n });
+  setChainStats: (count, observedAt, freshness) => {
+      set({ chainTxCount: count, chainStatsObservedAt: observedAt, chainStatsFreshness: freshness });
   },
 
   setLoadingOlder: (loading: boolean) => {

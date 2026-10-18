@@ -28,6 +28,8 @@ export default function StatsBar() {
     latestBlockNumber,
     verifiedBlockNumber,
     chainTxCount,
+    chainStatsObservedAt,
+    chainStatsFreshness,
     setSelectedBlock,
     setSelectedTx,
   } = useSceneState();
@@ -153,14 +155,16 @@ export default function StatsBar() {
         />
         <Divider />
 
-        {/* TRANSACTIONS — chain-wide total from explorer stats API */}
+        {/* NETWORK TRANSACTIONS — cumulative total reported by the official chain explorer */}
         <ClickableStatItem
-          label="TRANSACTIONS"
-          value={chainTxCount > 0 ? chainTxCount.toLocaleString() : totalTxCount.toLocaleString()}
+          label="NETWORK TRANSACTIONS"
+          value={chainTxCount === null ? "—" : chainTxCount.toLocaleString()}
           accent="#aaa"
           active={openPanel === "txs"}
           onClick={() => togglePanel("txs")}
-          title="Browse indexed transactions"
+          title={chainTxCount === null
+            ? "Network transaction total unavailable — local count is not substituted"
+            : `Explorer-reported network total (${chainStatsFreshness}; counting semantics not independently verified)`}
         />
         <Divider />
 
@@ -271,11 +275,12 @@ export default function StatsBar() {
       {openPanel === "txs" && (
         <DropPanel wide>
           <PanelHeader icon="◉" title={`${totalTxCount.toLocaleString()} Locally Loaded Transactions`} color="#aaa" />
-          {chainTxCount > 0 && (
-            <div style={{ padding: "6px 16px", color: "#555", fontSize: 9, fontFamily: "'JetBrains Mono', monospace", borderBottom: "1px solid #1a1a2e" }}>
-              Chain-wide total: {chainTxCount.toLocaleString()}
-            </div>
-          )}
+          <div style={{ padding: "6px 16px", color: "#65736d", fontSize: 9, fontFamily: "'JetBrains Mono', monospace", borderBottom: "1px solid #1a1a2e" }}>
+            Network Transactions: {chainTxCount === null ? "Unavailable" : chainTxCount.toLocaleString()}
+            {chainTxCount !== null && ` · ${chainStatsFreshness}`}
+            <br />Source: GenLayer Chain Explorer (explorer-reported; semantics not independently verified)
+            {chainStatsObservedAt && <><br />Observed: {new Date(chainStatsObservedAt).toLocaleString()}</>}
+          </div>
           <div
             style={{
               maxHeight: 320,

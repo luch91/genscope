@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { readBoundedJsonResponse } from "../_shared/bounded-body";
+import { normalizeChainStats } from "../../lib/chain-stats";
 
 const STATS_URL = "https://explorer-api.testnet-chain.genlayer.com/stats";
 
@@ -12,16 +13,7 @@ export async function GET() {
     });
     if (!res.ok) throw new Error("UPSTREAM_HTTP_ERROR");
     const data = await readBoundedJsonResponse(res, 64 * 1024);
-    if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("INVALID_UPSTREAM_RESPONSE");
-    const record = data as Record<string, unknown>;
-    const safe = {
-      lastSealedBlock: Number(record.lastSealedBlock),
-      lastVerifiedBlock: Number(record.lastVerifiedBlock),
-      totalTransactions: Number(record.totalTransactions),
-    };
-    if (Object.values(safe).some((value) => !Number.isSafeInteger(value) || value < 0)) {
-      throw new Error("INVALID_UPSTREAM_RESPONSE");
-    }
+    const safe = normalizeChainStats(data, new Date().toISOString(), res.headers.get("date"));
     return NextResponse.json(safe, {
       headers: { "Cache-Control": "public, s-maxage=15, stale-while-revalidate=30" },
     });

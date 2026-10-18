@@ -144,7 +144,6 @@ html, body {
 
   .stats-bar__divider,
   .stat-item--verified-blocks,
-  .stat-item--transactions,
   .stat-item--intelligent,
   .stat-item--validators {
     display: none !important;
@@ -153,6 +152,36 @@ html, body {
   .stat-item--committed-blocks {
     min-width: 116px;
     padding-inline: 7px !important;
+  }
+
+  .stat-item--network-transactions {
+    min-width: 82px;
+    padding-inline: 4px !important;
+  }
+
+  .stat-item--network-transactions > span:first-child {
+    max-width: 82px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 11px !important;
+  }
+
+  .stat-item--network-transactions > span:last-child {
+    max-width: 82px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 7px !important;
+  }
+
+  @media (max-width: 360px) {
+    .stat-item--committed-blocks {
+      min-width: 96px;
+    }
+
+    .stat-item--network-transactions {
+      min-width: 68px;
+    }
   }
 
   .stats-bar__network {

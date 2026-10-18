@@ -67,7 +67,7 @@ export default function BlockInfoOverlay() {
       ) : (
         <>
           <Stat
-            label="Total"
+            label="Selected Block Transactions"
             value={block.txDetails.length}
             color="#aaa"
           />
