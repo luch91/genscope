@@ -11,6 +11,7 @@ export function useTransactions() {
   const updateBlockTxDetails = useSceneState((s) => s.updateBlockTxDetails);
   const setIncompleteReceipts = useSceneState((s) => s.setIncompleteReceipts);
   const clearIncompleteReceipts = useSceneState((s) => s.clearIncompleteReceipts);
+  const addFeedTx = useSceneState((s) => s.addFeedTx);
 
   // fetchingRef: blocks whose transactions are currently being fetched
   // processedRef: blocks we've already attempted (prevents infinite retries when
@@ -105,6 +106,7 @@ export function useTransactions() {
           );
           if (valid.length > 0) {
             updateBlockTxDetails(blockNum, valid);
+            for (const tx of valid) addFeedTx(tx);
           }
           const resolved = new Set(valid.map((tx) => tx.hash));
           const missing = hashes.filter((hash) => !resolved.has(hash));
@@ -151,7 +153,7 @@ export function useTransactions() {
       // Timers are intentionally retained between block-list updates; they are
       // cleared only when the hook unmounts by the dedicated cleanup below.
     };
-  }, [blocks, blockCache, incompleteReceipts, updateBlockTxDetails, setIncompleteReceipts, clearIncompleteReceipts]);
+  }, [blocks, blockCache, incompleteReceipts, updateBlockTxDetails, setIncompleteReceipts, clearIncompleteReceipts, addFeedTx]);
 
   useEffect(() => () => {
     for (const timer of retryTimersRef.current.values()) clearTimeout(timer);
