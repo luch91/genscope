@@ -1,3 +1,5 @@
+import { BoundedBodyError, readBoundedBody } from "../_shared/bounded-body";
+
 const MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const UPSTREAM_TIMEOUT_MS = 8_000;
@@ -34,14 +36,18 @@ export class RpcPolicyError extends Error {
   }
 }
 
-export async function enforceRateLimit(limiter: SharedRateLimiter, key: string): Promise<void> {
+export async function enforceRateLimit(
+  limiter: SharedRateLimiter,
+  key: string,
+  options: { code?: string; message?: string; retryAfter?: number } = {},
+): Promise<void> {
   const { success } = await limiter.limit({ key });
   if (!success) {
     throw new RpcPolicyError(
       429,
-      "RATE_LIMITED",
-      "RPC request rate limit exceeded",
-      60,
+      options.code ?? "RATE_LIMITED",
+      options.message ?? "RPC request rate limit exceeded",
+      options.retryAfter ?? 60,
     );
   }
 }
@@ -73,13 +79,30 @@ export function validateRpcPayload(value: unknown): JsonRpcRequest {
 }
 
 export async function readBoundedJson(request: Request): Promise<JsonRpcRequest> {
-  const declaredLength = Number(request.headers.get("content-length") ?? "0");
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_REQUEST_BYTES) {
+  const contentLength = request.headers.get("content-length");
+  const declaredLength = contentLength === null ? null : Number(contentLength);
+  if (declaredLength !== null && Number.isFinite(declaredLength) && declaredLength > MAX_REQUEST_BYTES) {
     throw new RpcPolicyError(413, "REQUEST_TOO_LARGE", "RPC request body is too large");
   }
-  const bytes = new Uint8Array(await request.arrayBuffer());
-  if (bytes.byteLength > MAX_REQUEST_BYTES) {
-    throw new RpcPolicyError(413, "REQUEST_TOO_LARGE", "RPC request body is too large");
+  if (!request.body) throw new RpcPolicyError(400, "INVALID_JSON", "Request body is not valid JSON");
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_REQUEST_BYTES) {
+      await reader.cancel();
+      throw new RpcPolicyError(413, "REQUEST_TOO_LARGE", "RPC request body is too large");
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
   }
   let parsed: unknown;
   try {
@@ -91,31 +114,14 @@ export async function readBoundedJson(request: Request): Promise<JsonRpcRequest>
 }
 
 async function readBoundedResponse(response: Response): Promise<Uint8Array> {
-  const declaredLength = Number(response.headers.get("content-length") ?? "0");
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_RESPONSE_BYTES) {
-    throw new RpcPolicyError(502, "UPSTREAM_RESPONSE_TOO_LARGE", "RPC upstream response is too large");
-  }
-  if (!response.body) return new Uint8Array();
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > MAX_RESPONSE_BYTES) {
-      await reader.cancel();
+  try {
+    return await readBoundedBody(response, MAX_RESPONSE_BYTES);
+  } catch (error) {
+    if (error instanceof BoundedBodyError) {
       throw new RpcPolicyError(502, "UPSTREAM_RESPONSE_TOO_LARGE", "RPC upstream response is too large");
     }
-    chunks.push(value);
+    throw error;
   }
-  const output = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    output.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return output;
 }
 
 export async function forwardRpc(

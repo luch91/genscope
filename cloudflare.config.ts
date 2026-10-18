@@ -7,6 +7,7 @@ if (workerName !== "genscope-staging" && workerName !== "genscope") {
   throw new Error(`Refusing to deploy unexpected Worker: ${workerName}`);
 }
 const rateLimitNamespace = workerName === "genscope" ? "1002" : "1001";
+const contractRateLimitNamespace = workerName === "genscope" ? "2002" : "2001";
 
 export default defineConfig({
   worker: defineWorker({
@@ -34,6 +35,12 @@ export default defineConfig({
         // multiple users behind one NAT. Keep abuse bounded without starving
         // two concurrent explorer sessions.
         simple: { limit: 600, period: 60 },
+      }),
+      CONTRACT_RATE_LIMITER: bindings.rateLimit({
+        namespace: contractRateLimitNamespace,
+        // Discovery can spend up to 45 upstream calls, so constrain it
+        // separately from lightweight explorer RPC traffic.
+        simple: { limit: 12, period: 60 },
       }),
     },
   }),

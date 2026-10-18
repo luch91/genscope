@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { BoundedBodyError, readBoundedJsonResponse } from "../_shared/bounded-body";
 
 const EXPLORER_TX_URL = "https://explorer-api.testnet-chain.genlayer.com/transactions";
 const MAX_RESPONSE_BYTES = 512 * 1024;
@@ -26,23 +27,12 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const declaredLength = Number(upstream.headers.get("content-length") ?? "0");
-    if (declaredLength > MAX_RESPONSE_BYTES) {
-      return NextResponse.json(
-        { error: { code: "RESPONSE_TOO_LARGE", message: "Transaction feed response exceeded the safety limit" } },
-        { status: 502 },
-      );
-    }
-    const body = await upstream.text();
-    if (new TextEncoder().encode(body).byteLength > MAX_RESPONSE_BYTES) {
-      return NextResponse.json(
-        { error: { code: "RESPONSE_TOO_LARGE", message: "Transaction feed response exceeded the safety limit" } },
-        { status: 502 },
-      );
+    const payload = await readBoundedJsonResponse(upstream, MAX_RESPONSE_BYTES);
+    if (!payload || typeof payload !== "object" || !Array.isArray((payload as { items?: unknown }).items)) {
+      throw new BoundedBodyError("INVALID_UPSTREAM_JSON");
     }
 
-    return new NextResponse(body, {
-      status: 200,
+    return NextResponse.json(payload, {
       headers: {
         "Content-Type": "application/json; charset=utf-8",
         "Cache-Control": "public, s-maxage=5, stale-while-revalidate=15",
@@ -50,9 +40,10 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     const timeout = error instanceof Error && error.name === "TimeoutError";
-    console.warn("Explorer transaction request exception", { timeout });
+    const responseInvalid = error instanceof BoundedBodyError;
+    console.warn("Explorer transaction request exception", { timeout, responseInvalid });
     return NextResponse.json(
-      { error: { code: timeout ? "UPSTREAM_TIMEOUT" : "UPSTREAM_ERROR", message: "Transaction feed is temporarily unavailable" } },
+      { error: { code: timeout ? "UPSTREAM_TIMEOUT" : responseInvalid ? "INVALID_UPSTREAM_RESPONSE" : "UPSTREAM_ERROR", message: "Transaction feed is temporarily unavailable" } },
       { status: timeout ? 504 : 502 },
     );
   }
