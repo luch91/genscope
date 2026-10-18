@@ -142,7 +142,9 @@ export interface AppState {
   activeValidators: Set<string>;
   latestBlockNumber: number;   // actual chain head from eth_blockNumber (≈ lastSealedBlock)
   verifiedBlockNumber: number; // lastVerifiedBlock from explorer stats API
-  chainTxCount: number;        // totalTransactions from explorer stats API (chain-wide)
+  chainTxCount: number | null; // explorer-reported chain-wide total; null means unavailable
+  chainStatsObservedAt: string | null;
+  chainStatsFreshness: "fresh" | "stale" | "unavailable";
   loadingOlder: boolean;       // true while fetching older blocks
   incompleteReceipts: Record<number, string[]>;
 
@@ -158,7 +160,7 @@ export interface AppState {
   setNetworkStatus: (status: NetworkStatus) => void;
   setLatestBlockNumber: (n: number) => void;
   setVerifiedBlockNumber: (n: number) => void;
-  setChainTxCount: (n: number) => void;
+  setChainStats: (count: number | null, observedAt: string | null, freshness: "fresh" | "stale" | "unavailable") => void;
   setLoadingOlder: (loading: boolean) => void;
   updateBlockTxDetails: (
     blockNumber: number,

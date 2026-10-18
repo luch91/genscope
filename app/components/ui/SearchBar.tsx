@@ -197,6 +197,7 @@ export default function SearchBar() {
 
   return (
     <div
+      className="search-bar"
       ref={wrapperRef}
       style={{ position: "relative", width: "100%", maxWidth: 480 }}
     >

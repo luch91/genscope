@@ -2,27 +2,34 @@
 import { useEffect } from "react";
 import { useSceneState } from "./useSceneState";
 import { SYNC_POLL_INTERVAL } from "../lib/constants";
+import { chainStatsFreshness, type ChainStatsPayload } from "../lib/chain-stats";
 
-async function fetchStats(): Promise<{
-  lastSealedBlock: number;
-  lastVerifiedBlock: number;
-  totalTransactions: number;
-} | null> {
+export function parseChainStatsResponse(data: unknown, now = Date.now()): (ChainStatsPayload & {
+  status: "fresh" | "stale";
+}) | null {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  const record = data as Partial<ChainStatsPayload> & { error?: unknown };
+  if (
+    record.error
+    || typeof record.lastSealedBlock !== "number"
+    || typeof record.lastVerifiedBlock !== "number"
+    || (record.totalTransactions !== null && typeof record.totalTransactions !== "number")
+    || !record.source
+    || !record.freshness
+    || typeof record.freshness.observedAt !== "string"
+    || typeof record.freshness.maxAgeSeconds !== "number"
+  ) return null;
+  return {
+    ...record as ChainStatsPayload,
+    status: chainStatsFreshness(record.freshness.observedAt, record.freshness.maxAgeSeconds, now),
+  };
+}
+
+async function fetchStats(): Promise<ReturnType<typeof parseChainStatsResponse>> {
   try {
     const res = await fetch("/api/stats");
     if (!res.ok) return null;
-    const data = await res.json() as Record<string, unknown>;
-    if (data.error) return null;
-    if (
-      typeof data.lastSealedBlock !== "number"
-      || typeof data.lastVerifiedBlock !== "number"
-      || typeof data.totalTransactions !== "number"
-    ) return null;
-    return {
-      lastSealedBlock: data.lastSealedBlock,
-      lastVerifiedBlock: data.lastVerifiedBlock,
-      totalTransactions: data.totalTransactions,
-    };
+    return parseChainStatsResponse(await res.json());
   } catch {
     return null;
   }
@@ -30,7 +37,7 @@ async function fetchStats(): Promise<{
 
 export function useChainStats() {
   const setVerifiedBlockNumber = useSceneState((s) => s.setVerifiedBlockNumber);
-  const setChainTxCount = useSceneState((s) => s.setChainTxCount);
+  const setChainStats = useSceneState((s) => s.setChainStats);
 
   useEffect(() => {
     async function poll() {
@@ -38,12 +45,23 @@ export function useChainStats() {
       const stats = await fetchStats();
       if (stats) {
         setVerifiedBlockNumber(stats.lastVerifiedBlock);
-        setChainTxCount(stats.totalTransactions);
+        setChainStats(
+          stats.totalTransactions,
+          stats.freshness.observedAt,
+          stats.totalTransactions === null ? "unavailable" : stats.status,
+        );
+      } else {
+        const current = useSceneState.getState();
+        setChainStats(
+          current.chainTxCount,
+          current.chainStatsObservedAt,
+          current.chainTxCount === null ? "unavailable" : "stale",
+        );
       }
     }
 
     poll();
     const interval = setInterval(poll, SYNC_POLL_INTERVAL);
     return () => clearInterval(interval);
-  }, [setVerifiedBlockNumber, setChainTxCount]);
+  }, [setVerifiedBlockNumber, setChainStats]);
 }

@@ -62,7 +62,10 @@ async function executeRpc<T>(
   const json = await res.json() as { error?: { message?: string }; result?: T };
   if (json.error) throw new Error(json.error.message ?? JSON.stringify(json.error));
   const result = json.result as T;
-  const ttl = method === "eth_blockNumber" ? 1_500 : method === "gen_syncing" ? 10_000 : 0;
+  // Keep the chain-head cache shorter than the visible-tab poll cadence so a
+  // one-second probe reaches authoritative Bradbury state instead of repeatedly
+  // replaying the previous head locally.
+  const ttl = method === "eth_blockNumber" ? 500 : method === "gen_syncing" ? 10_000 : 0;
   if (!signal && ttl > 0) recent.set(cacheKey, { expiresAt: Date.now() + ttl, value: result });
   return result;
 }

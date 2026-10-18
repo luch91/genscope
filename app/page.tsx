@@ -11,24 +11,12 @@ import HelpHint from "./components/ui/HelpHint";
 const Scene = dynamic(() => import("./components/scene/Scene"), {
   ssr: false,
   loading: () => (
-    <div
-      style={{
-        width: "100%",
-        height: "100%",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        background: "#080810",
-        color: "#00FF88",
-        fontFamily: "'JetBrains Mono', monospace",
-        fontSize: 14,
-        letterSpacing: "0.1em",
-      }}
-    >
-      <div style={{ textAlign: "center" }}>
+    <div className="scene-bootstrap">
+      <div className="scene-bootstrap__grid" aria-hidden="true" />
+      <div className="scene-bootstrap__status" role="status">
         <div style={{ fontSize: 32, marginBottom: 12 }}>◈</div>
         <div>INITIALIZING GENSCOPE</div>
-        <div style={{ color: "#333", fontSize: 11, marginTop: 8 }}>
+        <div className="scene-bootstrap__message">
           Connecting to Bradbury Testnet...
         </div>
       </div>
@@ -58,6 +46,7 @@ export default function Home() {
 
       {/* 3D canvas — sits below the fixed UI layers */}
       <div
+        className="scene-layer"
         style={{
           position: "absolute",
           inset: 0,

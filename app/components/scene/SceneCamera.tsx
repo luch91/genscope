@@ -7,19 +7,35 @@ import { useSceneState } from "../../hooks/useSceneState";
 import { BLOCK_STEP } from "../../lib/constants";
 
 export default function SceneCamera() {
-  const { camera } = useThree();
-  const { selectedBlockNumber, blocks } = useSceneState();
+  const { camera, size } = useThree();
+  const selectedBlockNumber = useSceneState((state) => state.selectedBlockNumber);
+  const blocks = useSceneState((state) => state.blocks);
   const controlsRef = useRef<React.ElementRef<typeof OrbitControls>>(null);
   const targetRef = useRef(new THREE.Vector3(0, 0, 0));
-  const positionRef = useRef(new THREE.Vector3(6, 4, 8));
+  const positionRef = useRef(new THREE.Vector3(7, 2, 10));
   const reducedMotionRef = useRef(false);
 
   // Set initial camera position
   useEffect(() => {
-    camera.position.set(6, 4, 8);
-    camera.lookAt(0, 0, 0);
+    camera.position.set(7, 2, 10);
+    camera.lookAt(0, -2.5, 0);
     reducedMotionRef.current = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   }, [camera]);
+
+  // Keep the hydrated tower and its floor in one readable composition. This
+  // runs only when the retained block window or viewport width changes.
+  useEffect(() => {
+    if (selectedBlockNumber !== null) return;
+    const towerHeight = Math.max(0, blocks.length - 1) * BLOCK_STEP;
+    const midpoint = -towerHeight / 2;
+    const distance = Math.max(size.width < 600 ? 14 : 12, towerHeight * 1.9 + 12);
+    targetRef.current.set(0, midpoint, 0);
+    positionRef.current.set(
+      size.width < 600 ? distance * 0.58 : distance * 0.64,
+      midpoint + Math.max(3.5, towerHeight * 0.22),
+      distance,
+    );
+  }, [blocks.length, selectedBlockNumber, size.width]);
 
   // Animate camera when selection changes
   useEffect(() => {
@@ -30,13 +46,21 @@ export default function SceneCamera() {
       if (blockIndex !== -1) {
         const blockY = blockIndex * -BLOCK_STEP;
         targetRef.current.set(0, blockY, 0);
-        positionRef.current.set(5, blockY + 3, 6);
+        const distance = size.width < 600 ? 8.5 : 7;
+        positionRef.current.set(distance * 0.72, blockY + 2.6, distance);
       }
     } else {
-      targetRef.current.set(0, 0, 0);
-      positionRef.current.set(6, 4, 8);
+      const towerHeight = Math.max(0, blocks.length - 1) * BLOCK_STEP;
+      const midpoint = -towerHeight / 2;
+      const distance = Math.max(size.width < 600 ? 14 : 12, towerHeight * 1.9 + 12);
+      targetRef.current.set(0, midpoint, 0);
+      positionRef.current.set(
+        size.width < 600 ? distance * 0.58 : distance * 0.64,
+        midpoint + Math.max(3.5, towerHeight * 0.22),
+        distance,
+      );
     }
-  }, [selectedBlockNumber, blocks]);
+  }, [selectedBlockNumber, blocks, size.width]);
 
   useFrame(() => {
     if (!controlsRef.current) return;
@@ -55,6 +79,7 @@ export default function SceneCamera() {
     <OrbitControls
       ref={controlsRef}
       enableDamping
+      touches={{ ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN }}
       dampingFactor={0.05}
       minDistance={3}
       maxDistance={30}
