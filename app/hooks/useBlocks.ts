@@ -5,9 +5,43 @@ import { parseBlock } from "../lib/parsers";
 import { useSceneState } from "./useSceneState";
 import { BLOCK_POLL_INTERVAL, INITIAL_BLOCK_FETCH, OLDER_BLOCKS_FETCH } from "../lib/constants";
 
+const BLOCK_FETCH_CONCURRENCY = 5;
+const MAX_RECONCILE_BLOCKS_PER_POLL = 50;
+
+export async function fetchBlockBatch(
+  blockNumbers: number[],
+  fetcher = getBlockByNumber,
+  concurrency = BLOCK_FETCH_CONCURRENCY,
+): Promise<{ blocks: ReturnType<typeof parseBlock>[]; failed: number[] }> {
+  const blocks: ReturnType<typeof parseBlock>[] = [];
+  const failed: number[] = [];
+  let cursor = 0;
+
+  async function worker() {
+    while (cursor < blockNumbers.length) {
+      const blockNumber = blockNumbers[cursor++];
+      try {
+        const raw = await fetcher(blockNumber, true);
+        if (raw) blocks.push(parseBlock(raw));
+        else failed.push(blockNumber);
+      } catch {
+        failed.push(blockNumber);
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, blockNumbers.length) }, () => worker()),
+  );
+  return { blocks, failed };
+}
+
 export function useBlocks() {
   const { addBlock, setNetworkStatus, setLatestBlockNumber } = useSceneState();
   const latestKnownRef = useRef<number>(0);
+  const contiguousCheckpointRef = useRef<number>(0);
+  const fetchedNumbersRef = useRef<Set<number>>(new Set());
+  const failedBlocksRef = useRef<Set<number>>(new Set());
   const initializedRef = useRef(false);
   const consecutiveFailuresRef = useRef(0);
   const isPollingRef = useRef(false); // prevent concurrent poll calls
@@ -24,17 +58,24 @@ export function useBlocks() {
         setLatestBlockNumber(latest);
         consecutiveFailuresRef.current = 0;
 
-        const promises: Promise<void>[] = [];
+        const blockNumbers: number[] = [];
         for (let i = 0; i < INITIAL_BLOCK_FETCH; i++) {
           const blockNum = latest - i;
           if (blockNum < 0) break;
-          promises.push(
-            getBlockByNumber(blockNum, true).then((raw) => {
-              if (!cancelled && raw) addBlock(parseBlock(raw));
-            }).catch(() => {})
-          );
+          blockNumbers.push(blockNum);
         }
-        await Promise.all(promises);
+        const floor = Math.min(...blockNumbers);
+        contiguousCheckpointRef.current = floor - 1;
+        const result = await fetchBlockBatch(blockNumbers);
+        for (const block of result.blocks) {
+          fetchedNumbersRef.current.add(block.number);
+          if (!cancelled) addBlock(block);
+        }
+        for (const blockNumber of result.failed) failedBlocksRef.current.add(blockNumber);
+        while (fetchedNumbersRef.current.has(contiguousCheckpointRef.current + 1)) {
+          contiguousCheckpointRef.current += 1;
+          failedBlocksRef.current.delete(contiguousCheckpointRef.current);
+        }
       } catch (err) {
         console.error("Initial block fetch error:", err);
         setNetworkStatus("reconnecting");
@@ -52,26 +93,48 @@ export function useBlocks() {
         consecutiveFailuresRef.current = 0;
         nextPollAllowedRef.current = 0;
 
-        if (latest <= latestKnownRef.current) {
+        if (latest <= latestKnownRef.current && failedBlocksRef.current.size === 0) {
           // No new blocks — still live
           setNetworkStatus("live");
           return;
         }
 
         setNetworkStatus("live");
-        const toFetch: Promise<void>[] = [];
-
-        for (let blockNum = latestKnownRef.current + 1; blockNum <= latest; blockNum++) {
-          const num = blockNum;
-          toFetch.push(
-            getBlockByNumber(num, true).then((raw) => {
-              if (!cancelled && raw) addBlock(parseBlock(raw));
-            }).catch(() => {})
-          );
+        const wanted = new Set<number>(failedBlocksRef.current);
+        for (let blockNum = contiguousCheckpointRef.current + 1; blockNum <= latest; blockNum++) {
+          if (!fetchedNumbersRef.current.has(blockNum)) wanted.add(blockNum);
+          if (wanted.size >= MAX_RECONCILE_BLOCKS_PER_POLL) break;
         }
-
-        await Promise.all(toFetch);
-        latestKnownRef.current = latest;
+        const result = await fetchBlockBatch([...wanted].sort((a, b) => a - b));
+        for (const block of result.blocks) {
+          const predecessor = useSceneState.getState().blockCache[block.number - 1];
+          if (predecessor && block.parentHash !== predecessor.hash) {
+            const reconcileFrom = Math.max(0, block.number - 6);
+            for (let height = reconcileFrom; height <= block.number; height++) {
+              fetchedNumbersRef.current.delete(height);
+              failedBlocksRef.current.add(height);
+            }
+            contiguousCheckpointRef.current = Math.min(
+              contiguousCheckpointRef.current,
+              reconcileFrom - 1,
+            );
+          }
+          fetchedNumbersRef.current.add(block.number);
+          failedBlocksRef.current.delete(block.number);
+          if (!cancelled) addBlock(block);
+        }
+        for (const blockNumber of result.failed) failedBlocksRef.current.add(blockNumber);
+        while (fetchedNumbersRef.current.has(contiguousCheckpointRef.current + 1)) {
+          contiguousCheckpointRef.current += 1;
+          failedBlocksRef.current.delete(contiguousCheckpointRef.current);
+        }
+        latestKnownRef.current = Math.max(latestKnownRef.current, latest);
+        if (failedBlocksRef.current.size > 0) {
+          console.warn("Block reconciliation pending", {
+            contiguousCheckpoint: contiguousCheckpointRef.current,
+            failedBlocks: failedBlocksRef.current.size,
+          });
+        }
       } catch (err) {
         // Ignore intentional aborts (timeout or cleanup)
         if (err instanceof Error && err.name === "AbortError") return;
@@ -118,19 +181,13 @@ export async function loadOlderBlocks(): Promise<void> {
 
   setLoadingOlder(true);
   try {
-    const promises: Promise<ReturnType<typeof parseBlock> | null>[] = [];
+    const blockNumbers: number[] = [];
     for (let i = 1; i <= OLDER_BLOCKS_FETCH; i++) {
       const blockNum = oldestNumber - i;
       if (blockNum < 0) break;
-      promises.push(
-        getBlockByNumber(blockNum, true)
-          .then((raw) => (raw ? parseBlock(raw) : null))
-          .catch(() => null)
-      );
+      blockNumbers.push(blockNum);
     }
-    const olderBlocks = (await Promise.all(promises)).filter(
-      (block): block is ReturnType<typeof parseBlock> => block !== null,
-    );
+    const { blocks: olderBlocks } = await fetchBlockBatch(blockNumbers);
     if (olderBlocks.length > 0) addOlderBlocks(olderBlocks);
   } finally {
     setLoadingOlder(false);

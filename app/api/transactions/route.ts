@@ -8,9 +8,13 @@ export async function GET(request: NextRequest) {
   const limit = Number.isInteger(requestedLimit)
     ? Math.min(20, Math.max(1, requestedLimit))
     : 20;
+  const requestedPage = Number(request.nextUrl.searchParams.get("page") ?? "1");
+  const page = Number.isInteger(requestedPage)
+    ? Math.min(500, Math.max(1, requestedPage))
+    : 1;
 
   try {
-    const upstream = await fetch(`${EXPLORER_TX_URL}?limit=${limit}`, {
+    const upstream = await fetch(`${EXPLORER_TX_URL}?limit=${limit}&page=${page}`, {
       signal: AbortSignal.timeout(8_000),
       headers: { Accept: "application/json" },
     });

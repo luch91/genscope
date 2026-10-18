@@ -51,6 +51,15 @@ describe("block history and render window", () => {
     expect(state.blockCache[11]).toBeDefined();
   });
 
+  it("replaces an existing height when reconciliation detects a new canonical block", () => {
+    useSceneState.getState().setBlocks([block(10), block(9)]);
+    const replacement = { ...block(10), hash: "0xcanonical" };
+    useSceneState.getState().addBlock(replacement);
+
+    expect(useSceneState.getState().blocks.find((item) => item.number === 10)?.hash).toBe("0xcanonical");
+    expect(useSceneState.getState().blockCache[10].hash).toBe("0xcanonical");
+  });
+
   it("merges partial receipts in cached blocks and preserves recovery state", () => {
     const historical = { ...block(42), transactions: ["0xa", "0xb"] };
     useSceneState.getState().setBlocks([historical]);

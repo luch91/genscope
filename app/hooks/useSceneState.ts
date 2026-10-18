@@ -40,7 +40,12 @@ export const useSceneState = create<AppState>((set) => ({
     set((state) => {
       const blockCache = { ...state.blockCache, [block.number]: block };
       if (state.blocks.find((b) => b.number === block.number)) {
-        return { blockCache };
+        return {
+          blockCache,
+          blocks: state.blocks.map((existing) =>
+            existing.number === block.number ? block : existing,
+          ),
+        };
       }
       const newBlocks = [block, ...state.blocks]
         .sort((a, b) => b.number - a.number)

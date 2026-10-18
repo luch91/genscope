@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { getTransactionReceipt } from "../lib/genlayer";
-import { parseReceipt } from "../lib/parsers";
+import { getBlockByNumber, getTransactionReceiptResult } from "../lib/genlayer";
+import { parseBlock, parseReceipt } from "../lib/parsers";
 import { useSceneState } from "./useSceneState";
 
 export function useTransactions() {
@@ -20,6 +20,47 @@ export function useTransactions() {
   const attemptsRef = useRef<Map<number, number>>(new Map());
   const retryTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   const [, triggerRetry] = useState(0);
+  const recoveryHydratedRef = useRef(false);
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem("genscope.incompleteReceipts.v1");
+    try {
+      if (!stored) return;
+      const parsed = JSON.parse(stored) as Record<string, unknown>;
+      for (const [key, value] of Object.entries(parsed)) {
+        const blockNumber = Number(key);
+        const hashes = Array.isArray(value)
+          ? value.filter((item): item is string => typeof item === "string")
+          : [];
+        if (!Number.isSafeInteger(blockNumber) || hashes.length === 0) continue;
+        setIncompleteReceipts(blockNumber, hashes);
+        if (!useSceneState.getState().blockCache[blockNumber]) {
+          void getBlockByNumber(blockNumber, true).then((raw) => {
+            if (raw) useSceneState.getState().addBlock(parseBlock(raw));
+          }).catch(() => undefined);
+        }
+      }
+    } catch {
+      window.localStorage.removeItem("genscope.incompleteReceipts.v1");
+    } finally {
+      queueMicrotask(() => {
+        recoveryHydratedRef.current = true;
+        triggerRetry((value) => value + 1);
+      });
+    }
+  }, [setIncompleteReceipts]);
+
+  useEffect(() => {
+    if (!recoveryHydratedRef.current) return;
+    if (Object.keys(incompleteReceipts).length === 0) {
+      window.localStorage.removeItem("genscope.incompleteReceipts.v1");
+    } else {
+      window.localStorage.setItem(
+        "genscope.incompleteReceipts.v1",
+        JSON.stringify(incompleteReceipts),
+      );
+    }
+  }, [incompleteReceipts]);
 
   useEffect(() => {
     const candidates = new Map(blocks.map((block) => [block.number, block]));
@@ -53,13 +94,15 @@ export function useTransactions() {
       // in a single RPC call — no secondary calls needed.
       Promise.all(
         hashes.map((hash) =>
-          getTransactionReceipt(hash)
-            .then((raw) => (raw ? parseReceipt(raw, hash, blockNum) : null))
-            .catch(() => null)
+          getTransactionReceiptResult(hash).then((outcome) => ({ hash, outcome }))
         )
       )
         .then((results) => {
-          const valid = results.filter((r): r is NonNullable<typeof r> => r !== null);
+          const valid = results.flatMap(({ hash, outcome }) =>
+            outcome.kind === "available"
+              ? [parseReceipt(outcome.receipt, hash, blockNum)]
+              : [],
+          );
           if (valid.length > 0) {
             updateBlockTxDetails(blockNum, valid);
           }
@@ -74,6 +117,11 @@ export function useTransactions() {
 
           setIncompleteReceipts(blockNum, missing);
 
+          const outcomeCounts = results.reduce<Record<string, number>>((counts, result) => {
+            counts[result.outcome.kind] = (counts[result.outcome.kind] ?? 0) + 1;
+            return counts;
+          }, {});
+
           const attempts = (attemptsRef.current.get(blockNum) ?? 0) + 1;
           attemptsRef.current.set(blockNum, attempts);
           if (attempts >= 5) {
@@ -82,6 +130,7 @@ export function useTransactions() {
               blockNumber: blockNum,
               missingReceipts: missing.length,
               recoveryDelayMs: 60_000,
+              outcomes: outcomeCounts,
             });
           }
 
