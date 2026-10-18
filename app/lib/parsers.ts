@@ -3,6 +3,7 @@ import type {
   Block,
   ConsensusRound,
   GenLayerTransaction,
+  TransactionExecutionResult,
   TransactionStatus,
 } from "../types";
 import { STATUS_MAP } from "../types";
@@ -24,19 +25,82 @@ const STATUS_NAME_TO_CODE: Record<string, number> = {
   READY_TO_FINALIZE: 11,
   VALIDATORS_TIMEOUT: 12,
   LEADER_TIMEOUT: 13,
+  LEADER_REVEALING: 14,
 };
 
-// gen_getTransactionReceipt returns round result as a uint8 (ResultType enum)
+// Bradbury ResultType, mirrored by genlayer-js transactionResultNumberToName.
 const RESULT_LABEL: Record<number, string> = {
   0: "IDLE",
-  1: "AGREE",
-  2: "DISAGREE",
-  3: "TIMEOUT",
+  1: "MAJORITY_AGREE",
+  2: "MAJORITY_DISAGREE",
+  3: "MAJORITY_TIMEOUT",
   4: "DETERMINISTIC_VIOLATION",
   5: "NO_MAJORITY",
-  6: "MAJORITY_AGREE",
-  7: "MAJORITY_DISAGREE",
 };
+
+const EXECUTION_RESULT_LABEL: Record<number, TransactionExecutionResult> = {
+  0: "NOT_VOTED",
+  1: "FINISHED_WITH_RETURN",
+  2: "FINISHED_WITH_ERROR",
+  3: "TIMEOUT",
+  4: "NONDET_DISAGREE",
+};
+
+const BRADBURY_CONSENSUS_MAIN = "0x0112bf6e83497965a5fdd6dad1e447a6e004271d";
+const CONSENSUS_MAIN_TX_ID_SELECTORS = new Set([
+  "0xa560cd0c", // activateTransaction(bytes32,address,bytes)
+  "0x70ba3339", // cancelTransaction(bytes32)
+  "0x85d2d274", // commitVote(bytes32,bytes32,uint256)
+  "0xb2efda83", // finalizeTransaction(bytes32)
+  "0x6a9c499d", // flushExternalMessages(bytes32)
+  "0x5c970d28", // leaderIdleness(bytes32)
+  "0xc7e6e766", // processIdleness(bytes32)
+  "0x2af7cb7f", // proposeReceipt(bytes32,bytes32,uint256,address,bytes,bytes)
+  "0x3bd15f70", // revealVote(bytes32,bytes32,uint8,bytes32,uint256,uint256)
+  "0x8b5de1bc", // submitAppeal(bytes32)
+]);
+const VALIDATOR_WALLET_TX_ID_SELECTORS = new Set([
+  "0xaab85d64", // activateTransaction(bytes32,bytes)
+  "0xd4f6aa93", // commitTribunalAppealVote(bytes32,uint256,bytes32)
+  "0x85d2d274", // commitVote(bytes32,bytes32,uint256)
+  "0x0a6c701b", // proposeReceipt(bytes32,bytes32,uint256,bytes,bytes)
+  "0xf402ef5e", // proposeReceiptWithFees(bytes32,bytes32,uint256,uint256,bytes,bytes)
+  "0xcbc2440a", // revealTribunalAppealVote(bytes32,uint256,bytes32,uint8,bytes32,uint256)
+  "0x3bd15f70", // revealVote(bytes32,bytes32,uint8,bytes32,uint256,uint256)
+]);
+
+export function isTerminalTransactionStatus(status: TransactionStatus): boolean {
+  // ACCEPTED is a decided consensus state, but Bradbury may still advance it
+  // to FINALIZED. Consensus success is deliberately not treated as execution.
+  return status === "FINALIZED" || status === "CANCELED";
+}
+
+type LifecycleCall = {
+  txId: string;
+  kind: "consensus-main" | "validator-wallet";
+  destination: string;
+};
+
+function decodeLifecycleCall(
+  input: string | undefined,
+  to?: string | null,
+): LifecycleCall | null {
+  if (!input || !to) return null;
+  const hex = input.startsWith("0x") ? input.slice(2) : input;
+  if (hex.length < 72) return null;
+  const selector = `0x${hex.slice(0, 8).toLowerCase()}`;
+  const destination = to.toLowerCase();
+  const kind = destination === BRADBURY_CONSENSUS_MAIN &&
+    CONSENSUS_MAIN_TX_ID_SELECTORS.has(selector)
+    ? "consensus-main"
+    : VALIDATOR_WALLET_TX_ID_SELECTORS.has(selector)
+      ? "validator-wallet"
+      : null;
+  if (!kind) return null;
+  const txId = `0x${hex.slice(8, 72)}`;
+  if (txId === `0x${"0".repeat(64)}`) return null;
+  return { txId, kind, destination };
+}
 
 /** Convert a Unix timestamp (number) or ISO string to ISO string. Returns "" if zero/absent. */
 function normalizeTs(v: number | string | undefined | null): string {
@@ -51,25 +115,39 @@ function normalizeTs(v: number | string | undefined | null): string {
 /**
  * Extract the GenLayer TX ID from an ETH transaction's calldata.
  *
- * On Bradbury, every GenLayer user transaction is submitted via a contract call
- * where the GenLayer TX ID is the FIRST 32-byte ABI argument (bytes 4-35 of input).
- * System/consensus transactions by validators use different selectors and have a
- * different argument layout — those don't yield a valid GL TX ID.
+ * Bradbury lifecycle calls carry the GenLayer transaction ID as their first
+ * bytes32 argument. Only selectors from the deployed ConsensusMain and
+ * ValidatorWallet ABIs are accepted; ordinary contract calldata is never
+ * interpreted as a transaction ID.
  *
  * Returns null when input is absent, too short, or all-zero.
  */
-export function extractGenLayerTxId(input: string | undefined): string | null {
-  if (!input) return null;
-  const hex = input.startsWith("0x") ? input.slice(2) : input;
-  // Need at least 4-byte selector (8 hex) + 32-byte arg (64 hex) = 72 hex chars
-  if (hex.length < 72) return null;
-  const candidate = "0x" + hex.slice(8, 72);
-  if (candidate === "0x" + "0".repeat(64)) return null;
-  return candidate;
+export function extractGenLayerTxId(
+  input: string | undefined,
+  to?: string | null,
+  validatorWalletAddresses: Iterable<string> = [],
+): string | null {
+  const call = decodeLifecycleCall(input, to);
+  if (!call) return null;
+  if (call.kind === "consensus-main") return call.txId;
+  const wallets = new Set(Array.from(validatorWalletAddresses, (address) => address.toLowerCase()));
+  return wallets.has(call.destination) ? call.txId : null;
+}
+
+export function isValidatorWalletForTransaction(
+  destination: string,
+  transaction: GenLayerTransaction,
+): boolean {
+  const normalized = destination.toLowerCase();
+  return transaction.consumedValidators.some((address) => address.toLowerCase() === normalized) ||
+    transaction.roundData.some((round) =>
+      round.roundValidators.some((address) => address.toLowerCase() === normalized),
+    );
 }
 
 export function parseBlock(raw: RawBlock): Block {
   const transactions: string[] = [];
+  const transactionContexts: NonNullable<Block["transactionContexts"]> = {};
 
   if (Array.isArray(raw.transactions)) {
     for (const tx of raw.transactions) {
@@ -77,10 +155,22 @@ export function parseBlock(raw: RawBlock): Block {
         // Fallback when includeTransactions=false (we always use true, so rare)
         transactions.push(tx);
       } else {
-        const glId = extractGenLayerTxId((tx as RawTx).input);
-        if (glId) {
+        const rawTx = tx as RawTx;
+        const call = decodeLifecycleCall(rawTx.input, rawTx.to);
+        if (call) {
           // Store the GenLayer TX ID — this is what gen_getTransactionReceipt accepts
-          transactions.push(glId);
+          if (!transactions.includes(call.txId)) transactions.push(call.txId);
+          // ValidatorWallet calls are candidates until the receipt proves the
+          // destination is one of that transaction's protocol validators.
+          const existing = transactionContexts[call.txId];
+          if (!existing || call.kind === "consensus-main") {
+            transactionContexts[call.txId] = {
+              kind: call.kind,
+              destinations: [call.destination],
+            };
+          } else if (!existing.destinations.includes(call.destination)) {
+            existing.destinations.push(call.destination);
+          }
         }
         // Skip txs without a parseable GL TX ID (validator/system transactions)
       }
@@ -93,6 +183,7 @@ export function parseBlock(raw: RawBlock): Block {
     parentHash:     raw.parentHash,
     timestamp:      parseInt(raw.timestamp, 16),
     transactions,
+    transactionContexts,
     miner:          raw.miner,
     gasUsed:        raw.gasUsed,
     gasLimit:       raw.gasLimit,
@@ -114,11 +205,11 @@ export function parseReceipt(
 
   if (typeof raw.status === "string") {
     const name = raw.status.toUpperCase();
-    statusCode = STATUS_NAME_TO_CODE[name] ?? 0;
-    status = (STATUS_NAME_TO_CODE[name] !== undefined ? name : "UNINITIALIZED") as TransactionStatus;
+    statusCode = STATUS_NAME_TO_CODE[name] ?? -1;
+    status = (STATUS_NAME_TO_CODE[name] !== undefined ? name : "UNKNOWN") as TransactionStatus;
   } else {
-    statusCode = typeof raw.status === "number" ? raw.status : 0;
-    status = STATUS_MAP[statusCode] ?? "UNINITIALIZED";
+    statusCode = typeof raw.status === "number" ? raw.status : -1;
+    status = STATUS_MAP[statusCode] ?? "UNKNOWN";
   }
 
   // ── Round data ────────────────────────────────────────────────────────────
@@ -175,6 +266,20 @@ export function parseReceipt(
     activator: raw.activator ?? "",
     status,
     statusCode,
+    rawStatus: raw.status,
+    consensusDecisionCode: raw.result,
+    consensusDecision: raw.result === undefined
+      ? roundData.at(-1)?.result
+      : (RESULT_LABEL[raw.result] ?? `UNKNOWN_${raw.result}`),
+    executionResultCode: raw.txExecutionResult,
+    executionResult: raw.txExecutionResult === undefined
+      ? undefined
+      : (EXECUTION_RESULT_LABEL[raw.txExecutionResult] ?? "UNKNOWN"),
+    finalizationOutcome: status === "FINALIZED"
+      ? "FINALIZED"
+      : status === "CANCELED"
+        ? "CANCELED"
+        : "NOT_FINALIZED",
     timestamps: {
       Created:   normalizeTs(ts.Created),
       Pending:   normalizeTs(ts.Pending),

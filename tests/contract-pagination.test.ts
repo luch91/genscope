@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   candidateClassificationUnresolved,
   candidatePage,
+  cursorWithinLookback,
   GHOST_SELECTOR,
   parseNonNegativeCursor,
   planContinuations,
@@ -33,6 +34,12 @@ describe("contract discovery pagination", () => {
     expect(candidatePage(candidates, 0, 8).candidates).toHaveLength(2);
     expect(() => parseNonNegativeCursor("-1", "INVALID_CANDIDATE_CURSOR"))
       .toThrowError("INVALID_CANDIDATE_CURSOR");
+  });
+
+  it("bounds expensive historical cursor traversal", () => {
+    expect(cursorWithinLookback(2_000_000, 1_000_000, 1_000_000)).toBe(true);
+    expect(cursorWithinLookback(2_000_000, 999_999, 1_000_000)).toBe(false);
+    expect(cursorWithinLookback(2_000_000, 2_000_001, 1_000_000)).toBe(false);
   });
 
   it("advances after injected candidate failures and exposes a retry cursor", () => {

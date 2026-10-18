@@ -120,7 +120,11 @@ export default function SearchBar() {
           if (blockForTx) {
             // Block is loaded — attach tx to the block's txDetails
             if (!blockForTx.txDetails.some((t) => t.hash === tx.hash)) {
-              store.updateBlockTxDetails(blockForTx.number, [...blockForTx.txDetails, tx]);
+              store.updateBlockTxDetails(
+                blockForTx.number,
+                blockForTx.hash,
+                [...blockForTx.txDetails, tx],
+              );
             }
           } else {
             // Block not yet loaded — add tx directly to the transactions map

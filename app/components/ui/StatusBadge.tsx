@@ -39,6 +39,8 @@ const STATUS_STYLES: Record<
   READY_TO_FINALIZE: { bg: "rgba(68,136,255,0.15)", text: "#4488ff", border: "#4488ff66" },
   VALIDATORS_TIMEOUT: { bg: "rgba(255,68,68,0.15)", text: "#ff4444", border: "#ff444466" },
   LEADER_TIMEOUT: { bg: "rgba(255,68,68,0.15)", text: "#ff4444", border: "#ff444466" },
+  LEADER_REVEALING: { bg: "rgba(255,215,0,0.15)", text: "#FFD700", border: "#FFD70066" },
+  UNKNOWN: { bg: "rgba(255,136,0,0.15)", text: "#ff8800", border: "#ff880066" },
 };
 
 export default function StatusBadge({

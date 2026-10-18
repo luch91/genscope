@@ -3,5 +3,8 @@ declare module "cloudflare:workers" {
     RPC_RATE_LIMITER: {
       limit(options: { key: string }): Promise<{ success: boolean }>;
     };
+    CONTRACT_RATE_LIMITER: {
+      limit(options: { key: string }): Promise<{ success: boolean }>;
+    };
   };
 }

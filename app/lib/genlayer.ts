@@ -95,22 +95,45 @@ export async function getBlockByNumber(
  * Returns null when the transaction is not found or has no data yet.
  */
 export async function getTransactionReceipt(txId: string): Promise<RawReceipt | null> {
+  const outcome = await getTransactionReceiptResult(txId);
+  return outcome.kind === "available" ? outcome.receipt : null;
+}
+
+export type ReceiptFetchResult =
+  | { kind: "available"; receipt: RawReceipt }
+  | { kind: "pending" }
+  | { kind: "not_found" }
+  | { kind: "timeout" }
+  | { kind: "rate_limited" }
+  | { kind: "upstream_failure"; message: string }
+  | { kind: "invalid_response" };
+
+export async function getTransactionReceiptResult(txId: string): Promise<ReceiptFetchResult> {
   try {
     const result = await rpcCall<RawReceipt | null>(
       "gen_getTransactionReceipt",
       [{ txId }],
     );
-    if (!result) return null;
+    if (!result) return { kind: "pending" };
     // Filter out empty/zero results
     if (
       !result.sender ||
       result.sender === "0x0000000000000000000000000000000000000000"
     ) {
-      return null;
+      const zeroId = "0x" + "0".repeat(64);
+      return result.id === zeroId ? { kind: "not_found" } : { kind: "pending" };
     }
-    return result;
-  } catch {
-    return null;
+    if (!result.id || typeof result.status === "undefined") {
+      return { kind: "invalid_response" };
+    }
+    return { kind: "available", receipt: result };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown upstream failure";
+    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+      return { kind: "timeout" };
+    }
+    if (/HTTP 429|rate.?limit/i.test(message)) return { kind: "rate_limited" };
+    return { kind: "upstream_failure", message };
   }
 }
 
@@ -148,6 +171,9 @@ export interface RawReceipt {
   activator: string;
   /** uint8 status code (0/1/5/7/8); some RPC versions return a string name */
   status:    number | string;
+  /** Consensus decision and GenVM execution outcome are independent of lifecycle status. */
+  result?: number;
+  txExecutionResult?: number;
   /** Timestamp values: actual API returns Unix epoch numbers; handle both number and string */
   timestamps: {
     Created:   number | string;

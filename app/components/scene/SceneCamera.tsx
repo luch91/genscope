@@ -12,11 +12,13 @@ export default function SceneCamera() {
   const controlsRef = useRef<React.ElementRef<typeof OrbitControls>>(null);
   const targetRef = useRef(new THREE.Vector3(0, 0, 0));
   const positionRef = useRef(new THREE.Vector3(6, 4, 8));
+  const reducedMotionRef = useRef(false);
 
   // Set initial camera position
   useEffect(() => {
     camera.position.set(6, 4, 8);
     camera.lookAt(0, 0, 0);
+    reducedMotionRef.current = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   }, [camera]);
 
   // Animate camera when selection changes
@@ -38,7 +40,7 @@ export default function SceneCamera() {
 
   useFrame(() => {
     if (!controlsRef.current) return;
-    const speed = 0.05;
+    const speed = reducedMotionRef.current ? 1 : 0.05;
     const targetDist = controlsRef.current.target.distanceTo(targetRef.current);
     const posDist = camera.position.distanceTo(positionRef.current);
     // Only lerp when not yet settled (saves GPU time when camera is idle)

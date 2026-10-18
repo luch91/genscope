@@ -67,3 +67,10 @@ export function planContinuations(options: {
       : null,
   };
 }
+export function cursorWithinLookback(
+  latest: number,
+  cursor: number | null,
+  maxLookback: number,
+): boolean {
+  return cursor === null || (cursor <= latest && latest - cursor <= maxLookback);
+}

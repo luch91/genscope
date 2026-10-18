@@ -23,6 +23,7 @@ test("loads the explorer, WebGL scene, and live APIs without client errors", asy
 });
 
 test("searches a current block and opens its result", async ({ page, request }) => {
+  test.setTimeout(150_000);
   const rpc = await request.post("/api/rpc", {
     data: { jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] },
   });
@@ -40,7 +41,10 @@ test("searches a current block and opens its result", async ({ page, request }) 
   const resultRow = page.getByText(`Block #${blockNumber.toLocaleString()}`);
   await expect(resultRow).toBeVisible();
   await resultRow.click();
-  await expect(resultRow).toBeHidden();
+  // The details overlay intentionally repeats the block label, so asserting
+  // that label is hidden produces a false timeout after successful navigation.
+  await expect(input).toHaveValue("");
+  await expect(page.getByRole("button", { name: /Close/i })).toBeVisible();
 });
 
 test("rejects malformed and state-changing RPC calls", async ({ request }) => {

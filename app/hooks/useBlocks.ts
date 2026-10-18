@@ -4,10 +4,49 @@ import { getBlockByNumber, getLatestBlockNumber } from "../lib/genlayer";
 import { parseBlock } from "../lib/parsers";
 import { useSceneState } from "./useSceneState";
 import { BLOCK_POLL_INTERVAL, INITIAL_BLOCK_FETCH, OLDER_BLOCKS_FETCH } from "../lib/constants";
+import {
+  BlockRecoveryTracker,
+  MAX_RECONCILE_BLOCKS_PER_POLL,
+} from "../lib/block-recovery";
+
+const BLOCK_FETCH_CONCURRENCY = 5;
+
+export function sortBlocksForReconciliation<T extends { number: number }>(blocks: T[]): T[] {
+  return [...blocks].sort((a, b) => a.number - b.number);
+}
+
+export async function fetchBlockBatch(
+  blockNumbers: number[],
+  fetcher = getBlockByNumber,
+  concurrency = BLOCK_FETCH_CONCURRENCY,
+): Promise<{ blocks: ReturnType<typeof parseBlock>[]; failed: number[] }> {
+  const blocks: ReturnType<typeof parseBlock>[] = [];
+  const failed: number[] = [];
+  let cursor = 0;
+
+  async function worker() {
+    while (cursor < blockNumbers.length) {
+      const blockNumber = blockNumbers[cursor++];
+      try {
+        const raw = await fetcher(blockNumber, true);
+        if (raw) blocks.push(parseBlock(raw));
+        else failed.push(blockNumber);
+      } catch {
+        failed.push(blockNumber);
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, blockNumbers.length) }, () => worker()),
+  );
+  return { blocks, failed };
+}
 
 export function useBlocks() {
   const { addBlock, setNetworkStatus, setLatestBlockNumber } = useSceneState();
   const latestKnownRef = useRef<number>(0);
+  const recoveryRef = useRef(new BlockRecoveryTracker());
   const initializedRef = useRef(false);
   const consecutiveFailuresRef = useRef(0);
   const isPollingRef = useRef(false); // prevent concurrent poll calls
@@ -24,17 +63,19 @@ export function useBlocks() {
         setLatestBlockNumber(latest);
         consecutiveFailuresRef.current = 0;
 
-        const promises: Promise<void>[] = [];
+        const blockNumbers: number[] = [];
         for (let i = 0; i < INITIAL_BLOCK_FETCH; i++) {
           const blockNum = latest - i;
           if (blockNum < 0) break;
-          promises.push(
-            getBlockByNumber(blockNum, true).then((raw) => {
-              if (!cancelled && raw) addBlock(parseBlock(raw));
-            }).catch(() => {})
-          );
+          blockNumbers.push(blockNum);
         }
-        await Promise.all(promises);
+        const floor = Math.min(...blockNumbers);
+        recoveryRef.current = new BlockRecoveryTracker(floor - 1);
+        const result = await fetchBlockBatch(blockNumbers);
+        for (const block of sortBlocksForReconciliation(result.blocks)) {
+          if (!cancelled) addBlock(block);
+        }
+        recoveryRef.current.record(result.blocks.map((block) => block.number), result.failed);
       } catch (err) {
         console.error("Initial block fetch error:", err);
         setNetworkStatus("reconnecting");
@@ -52,26 +93,37 @@ export function useBlocks() {
         consecutiveFailuresRef.current = 0;
         nextPollAllowedRef.current = 0;
 
-        if (latest <= latestKnownRef.current) {
+        if (latest <= latestKnownRef.current && recoveryRef.current.checkpoint >= latest) {
           // No new blocks — still live
           setNetworkStatus("live");
           return;
         }
 
         setNetworkStatus("live");
-        const toFetch: Promise<void>[] = [];
-
-        for (let blockNum = latestKnownRef.current + 1; blockNum <= latest; blockNum++) {
-          const num = blockNum;
-          toFetch.push(
-            getBlockByNumber(num, true).then((raw) => {
-              if (!cancelled && raw) addBlock(parseBlock(raw));
-            }).catch(() => {})
-          );
+        const wanted = recoveryRef.current.plan(latest, MAX_RECONCILE_BLOCKS_PER_POLL);
+        const result = await fetchBlockBatch(wanted);
+        let reorgFrom: number | null = null;
+        const canonicalBlocks = sortBlocksForReconciliation(result.blocks);
+        for (const block of canonicalBlocks) {
+          const predecessor = useSceneState.getState().blockCache[block.number - 1];
+          if (predecessor && block.parentHash !== predecessor.hash) {
+            const reconcileFrom = Math.max(0, block.number - 6);
+            reorgFrom = reorgFrom === null ? reconcileFrom : Math.min(reorgFrom, reconcileFrom);
+          }
+          if (!cancelled) addBlock(block);
         }
-
-        await Promise.all(toFetch);
-        latestKnownRef.current = latest;
+        if (reorgFrom !== null) {
+          recoveryRef.current.rewind(reorgFrom);
+        } else {
+          recoveryRef.current.record(canonicalBlocks.map((block) => block.number), result.failed);
+        }
+        latestKnownRef.current = Math.max(latestKnownRef.current, latest);
+        if (recoveryRef.current.failedCount > 0) {
+          console.warn("Block reconciliation pending", {
+            contiguousCheckpoint: recoveryRef.current.checkpoint,
+            failedBlocks: recoveryRef.current.failedCount,
+          });
+        }
       } catch (err) {
         // Ignore intentional aborts (timeout or cleanup)
         if (err instanceof Error && err.name === "AbortError") return;
@@ -118,19 +170,13 @@ export async function loadOlderBlocks(): Promise<void> {
 
   setLoadingOlder(true);
   try {
-    const promises: Promise<ReturnType<typeof parseBlock> | null>[] = [];
+    const blockNumbers: number[] = [];
     for (let i = 1; i <= OLDER_BLOCKS_FETCH; i++) {
       const blockNum = oldestNumber - i;
       if (blockNum < 0) break;
-      promises.push(
-        getBlockByNumber(blockNum, true)
-          .then((raw) => (raw ? parseBlock(raw) : null))
-          .catch(() => null)
-      );
+      blockNumbers.push(blockNum);
     }
-    const olderBlocks = (await Promise.all(promises)).filter(
-      (block): block is ReturnType<typeof parseBlock> => block !== null,
-    );
+    const { blocks: olderBlocks } = await fetchBlockBatch(blockNumbers);
     if (olderBlocks.length > 0) addOlderBlocks(olderBlocks);
   } finally {
     setLoadingOlder(false);

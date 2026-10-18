@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { env } from "cloudflare:workers";
+import { enforceRateLimit, RpcPolicyError } from "../rpc/policy";
+import { readBoundedJsonResponse } from "../_shared/bounded-body";
 import {
   candidateClassificationUnresolved,
   candidatePage,
+  cursorWithinLookback,
   GHOST_SELECTOR,
   parseNonNegativeCursor,
   planContinuations,
@@ -10,7 +14,7 @@ import {
 
 const NETWORKS = {
   "testnet-bradbury": { rpcUrl: "https://rpc-bradbury.genlayer.com", consensus: "0x0112Bf6e83497965A5fdD6Dad1E447a6E004271D", studio: false },
-  "testnet-asimov": { rpcUrl: "https://rpc.asimov.genlayer.com", consensus: "0x6CAFF6769d70824745AD895663409DC70aB5B28E", studio: false },
+  "testnet-asimov": { rpcUrl: "https://rpc-asimov.genlayer.com", consensus: "0x6CAFF6769d70824745AD895663409DC70aB5B28E", studio: false },
   studionet: { rpcUrl: "https://studio.genlayer.com/api", consensus: "0xb7278A61aa25c888815aFC32Ad3cC52fF24fE575", studio: true },
 } as const;
 
@@ -18,6 +22,7 @@ const NEW_TX_TOPIC = "0xdab9102861c7483a187584d6371d88316f005af507982ccf95c11087
 const CHUNK_SIZE = 10_000;
 const CHUNKS_PER_PAGE = 4;
 const MAX_SUBREQUESTS = 45;
+const MAX_CURSOR_LOOKBACK = 1_000_000;
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS" };
 
 type NetworkName = keyof typeof NETWORKS;
@@ -43,12 +48,8 @@ async function rpc(rpcUrl: string, method: string, params: unknown[], budget: Re
     body: JSON.stringify({ jsonrpc: "2.0", id: budget.used, method, params }),
     signal: AbortSignal.timeout(8_000),
   });
-  const length = Number(response.headers.get("content-length") ?? "0");
-  if (length > 2 * 1024 * 1024) throw new Error("RPC_RESPONSE_TOO_LARGE");
   if (!response.ok) throw new Error(`RPC_HTTP_${response.status}`);
-  const text = await response.text();
-  if (new TextEncoder().encode(text).byteLength > 2 * 1024 * 1024) throw new Error("RPC_RESPONSE_TOO_LARGE");
-  const json = JSON.parse(text) as { result?: unknown; error?: { message?: string } };
+  const json = await readBoundedJsonResponse(response, 2 * 1024 * 1024) as { result?: unknown; error?: { message?: string } };
   if (json.error) throw new Error(json.error.message ?? "RPC_ERROR");
   return json.result;
 }
@@ -124,6 +125,14 @@ export async function GET(request: NextRequest) {
   const budget = new RequestBudget();
 
   try {
+    const clientKey = request.headers.get("cf-connecting-ip")
+      ?? request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+      ?? "unknown";
+    await enforceRateLimit(env.CONTRACT_RATE_LIMITER, clientKey, {
+      code: "CONTRACT_DISCOVERY_RATE_LIMITED",
+      message: "Contract discovery rate limit exceeded",
+      retryAfter: 60,
+    });
     const cursor = parseNonNegativeCursor(request.nextUrl.searchParams.get("cursor"), "INVALID_CURSOR");
     const candidateCursor = parseNonNegativeCursor(
       request.nextUrl.searchParams.get("candidateCursor"),
@@ -132,6 +141,9 @@ export async function GET(request: NextRequest) {
     const latestHex = await rpc(network.rpcUrl, "eth_blockNumber", [], budget);
     if (typeof latestHex !== "string" || !/^0x[0-9a-f]+$/i.test(latestHex)) throw new Error("INVALID_LATEST_BLOCK");
     const latest = Number.parseInt(latestHex, 16);
+    if (!cursorWithinLookback(latest, cursor, MAX_CURSOR_LOOKBACK)) {
+      throw new Error("CURSOR_LOOKBACK_EXCEEDED");
+    }
     const toBlock = Math.min(cursor ?? latest, latest);
     const fromBlock = Math.max(0, toBlock - CHUNK_SIZE * CHUNKS_PER_PAGE + 1);
     const chunks: Array<[number, number]> = [];
@@ -233,8 +245,20 @@ export async function GET(request: NextRequest) {
       headers: { ...CORS, "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" },
     });
   } catch (error) {
+    if (error instanceof RpcPolicyError) {
+      return NextResponse.json(
+        { error: { code: error.code, message: error.message } },
+        {
+          status: error.status,
+          headers: {
+            ...CORS,
+            ...(error.retryAfter ? { "Retry-After": String(error.retryAfter) } : {}),
+          },
+        },
+      );
+    }
     const code = error instanceof Error ? error.message : "UNKNOWN_ERROR";
-    const status = code === "INVALID_CURSOR" || code === "INVALID_CANDIDATE_CURSOR" ? 400 : 502;
+    const status = code === "INVALID_CURSOR" || code === "INVALID_CANDIDATE_CURSOR" || code === "CURSOR_LOOKBACK_EXCEEDED" ? 400 : 502;
     console.warn(JSON.stringify({ event: "contract_discovery_failed", network: networkName, code, subrequests: budget.used }));
     return NextResponse.json(
       { error: code, partial: true, budget: { used: budget.used, limit: MAX_SUBREQUESTS } },

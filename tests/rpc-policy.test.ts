@@ -49,6 +49,29 @@ describe("RPC proxy policy", () => {
     await expect(readBoundedJson(request)).rejects.toMatchObject({ status: 413 });
   });
 
+  it("stops an oversized streamed body even without Content-Length", async () => {
+    const request = new Request("https://example.test/api/rpc", {
+      method: "POST",
+      body: "x".repeat(65 * 1024),
+    });
+    expect(request.headers.has("content-length")).toBe(false);
+    await expect(readBoundedJson(request)).rejects.toMatchObject({
+      status: 413,
+      code: "REQUEST_TOO_LARGE",
+    });
+  });
+
+  it("supports endpoint-specific shared rate-limit errors", async () => {
+    const denied = { limit: vi.fn(async () => ({ success: false })) };
+    await expect(enforceRateLimit(denied, "203.0.113.2", {
+      code: "CONTRACT_DISCOVERY_RATE_LIMITED",
+      message: "Contract discovery rate limit exceeded",
+    })).rejects.toMatchObject({
+      status: 429,
+      code: "CONTRACT_DISCOVERY_RATE_LIMITED",
+    });
+  });
+
   it("preserves valid upstream JSON responses", async () => {
     const fetcher = vi.fn(async () => Response.json({
       jsonrpc: "2.0",
