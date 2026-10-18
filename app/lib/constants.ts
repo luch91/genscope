@@ -21,7 +21,9 @@ export const COLORS = {
 export const BLOCK_WIDTH = 2.5;
 export const BLOCK_HEIGHT = 0.5;
 export const BLOCK_DEPTH = 2.5;
-export const BLOCK_GAP = 0.08;
+// Keep enough negative space between slabs for edge glow and drop animations.
+// The former 80px-in-world gap visually collapsed once bloom was applied.
+export const BLOCK_GAP = 0.22;
 export const BLOCK_STEP = BLOCK_HEIGHT + BLOCK_GAP;
 export const MAX_VISIBLE_BLOCKS = 100;
 export const OLDER_BLOCKS_FETCH = 20;
@@ -39,7 +41,9 @@ export const PULSE_SPEED = 1.5; // seconds per cycle
 export const CAMERA_TRANSITION_DURATION = 1.2; // seconds
 
 // Polling
-export const BLOCK_POLL_INTERVAL = 4000;  // Bradbury block cadence without duplicate 2s probes
+export const BLOCK_POLL_INTERVAL = 1000;
+export const HIDDEN_BLOCK_POLL_INTERVAL = 15000;
+export const MAX_BLOCK_POLL_BACKOFF = 30000;
 export const SYNC_POLL_INTERVAL = 30000;
 
 // RPC — all calls go through the local Next.js proxy to avoid browser network issues

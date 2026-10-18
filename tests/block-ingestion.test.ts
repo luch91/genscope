@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fetchBlockBatch, sortBlocksForReconciliation } from "../app/hooks/useBlocks";
+import { blockPollDelay, fetchBlockBatch, sortBlocksForReconciliation } from "../app/hooks/useBlocks";
 import { BlockRecoveryTracker, MAX_RECONCILE_BLOCKS_PER_POLL } from "../app/lib/block-recovery";
 import type { RawBlock } from "../app/lib/genlayer";
 
@@ -18,6 +18,12 @@ function rawBlock(number: number): RawBlock {
 }
 
 describe("block ingestion recovery", () => {
+  it("polls visible tabs every second and backs off when hidden or failing", () => {
+    expect(blockPollDelay({ visible: true, consecutiveFailures: 0 })).toBe(1_000);
+    expect(blockPollDelay({ visible: true, consecutiveFailures: 1 })).toBe(2_000);
+    expect(blockPollDelay({ visible: true, consecutiveFailures: 10 })).toBe(30_000);
+    expect(blockPollDelay({ visible: false, consecutiveFailures: 0 })).toBe(15_000);
+  });
   it("tracks intermittent failures and recovers every missing block", async () => {
     const attempts = new Map<number, number>();
     const fetcher = async (number: number) => {

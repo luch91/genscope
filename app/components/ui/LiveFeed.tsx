@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import { useSceneState } from "../../hooks/useSceneState";
 import StatusBadge from "./StatusBadge";
 import { truncateHash, truncateAddress } from "../../lib/parsers";
@@ -8,6 +9,7 @@ import { formatDistanceToNow } from "date-fns";
 const HEADER_HEIGHT = 92;
 
 export default function LiveFeed() {
+  const [mobileOpen, setMobileOpen] = useState(false);
   const feedTxs = useSceneState((s) => s.feedTxs);
   const { setSelectedTx, setSelectedBlock } = useSceneState();
 
@@ -22,7 +24,29 @@ export default function LiveFeed() {
   }));
 
   return (
-    <div
+    <>
+      <button
+        type="button"
+        className="live-feed-trigger"
+        onClick={() => setMobileOpen(true)}
+        aria-expanded={mobileOpen}
+        aria-controls="live-feed-panel"
+      >
+        <span className="live-dot" />
+        Feed
+        <span>{feedItems.length}</span>
+      </button>
+      {mobileOpen && (
+        <button
+          className="mobile-scrim"
+          aria-label="Close live feed"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+      <aside
+      id="live-feed-panel"
+      aria-label="Live transaction feed"
+      className={`live-feed ${mobileOpen ? "live-feed--open" : ""}`}
       style={{
         position: "fixed",
         left: 0,
@@ -65,6 +89,14 @@ export default function LiveFeed() {
           }}
         />
         LIVE FEED
+        <button
+          type="button"
+          className="live-feed-close"
+          onClick={() => setMobileOpen(false)}
+          aria-label="Close live feed"
+        >
+          ✕
+        </button>
         <span style={{ marginLeft: "auto", color: "#333", fontSize: 9 }}>
           {feedItems.length} txs
         </span>
@@ -93,22 +125,30 @@ export default function LiveFeed() {
           </div>
         ) : (
           feedItems.map(({ tx, blockNumber, timestamp }) => (
-            <div
+            <button
+              type="button"
               key={tx.hash}
               onClick={() => {
                 setSelectedBlock(blockNumber);
                 setSelectedTx(tx.hash);
+                setMobileOpen(false);
               }}
+              aria-label={`Open transaction ${truncateHash(tx.hash, 5)}`}
               style={{
+                width: "100%",
+                background: "transparent",
+                color: "inherit",
+                textAlign: "left",
+                border: 0,
                 padding: "7px 12px",
                 borderBottom: "1px solid #0d0d1a",
                 cursor: "pointer",
               }}
               onMouseEnter={(e) => {
-                (e.currentTarget as HTMLDivElement).style.background = "rgba(255,255,255,0.04)";
+                e.currentTarget.style.background = "rgba(255,255,255,0.04)";
               }}
               onMouseLeave={(e) => {
-                (e.currentTarget as HTMLDivElement).style.background = "transparent";
+                e.currentTarget.style.background = "transparent";
               }}
             >
               <div
@@ -155,7 +195,7 @@ export default function LiveFeed() {
                     : "—"}
                 </span>
               </div>
-            </div>
+            </button>
           ))
         )}
       </div>
@@ -175,6 +215,7 @@ export default function LiveFeed() {
       >
         {feedTxs.length > 0 ? `${feedTxs.length} txs · live` : "connecting…"}
       </div>
-    </div>
+      </aside>
+    </>
   );
 }

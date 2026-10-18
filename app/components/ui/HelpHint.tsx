@@ -10,6 +10,7 @@ export default function HelpHint() {
 
   return (
     <div
+      className="help-hint"
       style={{
         position: "fixed",
         bottom: 24,
@@ -49,6 +50,8 @@ export default function HelpHint() {
         </div>
       )}
       <button
+        type="button"
+        aria-label={show ? "Close scene controls help" : "Open scene controls help"}
         onClick={() => setShow(!show)}
         style={{
           background: "rgba(8,8,20,0.9)",

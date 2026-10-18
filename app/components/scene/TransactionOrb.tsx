@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Html } from "@react-three/drei";
 import * as THREE from "three";
@@ -31,15 +31,23 @@ export default function TransactionOrb({
   const meshRef = useRef<THREE.Mesh>(null);
   const [hovered, setHovered] = useState(false);
 
-  // Distribute orbs in a sphere/spiral around block
-  const angle = (index / Math.max(total, 1)) * Math.PI * 2;
-  const layer = Math.floor(index / 8);
-  const radius = 2.0 + layer * 0.8;
-  const yOffset = (layer % 2 === 0 ? 0.4 : -0.4) + (index % 2 === 0 ? 0.2 : -0.2);
+  // A golden-angle spiral avoids the radial stacks produced by equal-angle
+  // rings when a block contains many transactions.
+  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+  const angle = index * goldenAngle;
+  const layer = Math.floor(index / 10);
+  const radius = 2.25 + layer * 0.42;
+  const centeredIndex = index - (Math.max(total, 1) - 1) / 2;
+  const yOffset = Math.max(-1.15, Math.min(1.15, centeredIndex * 0.14));
 
   // Orbit speed per layer
-  const orbitSpeed = 0.3 + layer * 0.15;
+  const orbitSpeed = 0.18 + layer * 0.05;
   const orbitRef = useRef(angle);
+  const reducedMotionRef = useRef(false);
+
+  useEffect(() => {
+    reducedMotionRef.current = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }, []);
 
   const color = tx.isIntelligent ? COLORS.orbIntelligent : COLORS.orbStandard;
   const radius3d = tx.isIntelligent ? ORB_RADIUS_INTELLIGENT : ORB_RADIUS_STANDARD;
@@ -47,7 +55,7 @@ export default function TransactionOrb({
   useFrame((_, delta) => {
     if (!meshRef.current) return;
 
-    orbitRef.current += orbitSpeed * delta;
+    if (!reducedMotionRef.current) orbitRef.current += orbitSpeed * delta;
 
     const x = Math.cos(orbitRef.current) * radius;
     const z = Math.sin(orbitRef.current) * radius;

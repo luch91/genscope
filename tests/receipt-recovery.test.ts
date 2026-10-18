@@ -1,9 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getTransactionReceiptResult } from "../app/lib/genlayer";
+import { receiptRetryDelay } from "../app/hooks/useTransactions";
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe("receipt recovery outcomes", () => {
+  it("refreshes active receipts promptly and slows hidden or exhausted retries", () => {
+    expect(receiptRetryDelay(1, true)).toBe(1_000);
+    expect(receiptRetryDelay(2, true)).toBe(2_000);
+    expect(receiptRetryDelay(5, true)).toBe(60_000);
+    expect(receiptRetryDelay(1, false)).toBe(15_000);
+  });
   it("distinguishes pending and invalid responses", async () => {
     const fetch = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ result: null }), { status: 200 }))

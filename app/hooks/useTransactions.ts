@@ -13,6 +13,12 @@ export function receiptProcessingKey(block: { number: number; hash: string }): s
   return `${block.number}:${block.hash.toLowerCase()}`;
 }
 
+export function receiptRetryDelay(attempts: number, visible = true): number {
+  if (!visible) return 15_000;
+  if (attempts >= 5) return 60_000;
+  return Math.min(15_000, 1_000 * 2 ** Math.max(0, attempts - 1));
+}
+
 export function useTransactions() {
   const blocks = useSceneState((s) => s.blocks);
   const blockCache = useSceneState((s) => s.blockCache);
@@ -189,7 +195,10 @@ export function useTransactions() {
             });
           }
 
-          const delay = attempts >= 5 ? 60_000 : Math.min(30_000, 2_000 * 2 ** (attempts - 1));
+          const delay = receiptRetryDelay(
+            attempts,
+            document.visibilityState === "visible",
+          );
           const timer = setTimeout(() => {
             retryTimersRef.current.delete(processingKey);
             if (useSceneState.getState().blockCache[blockNum]?.hash === blockHash) {
@@ -213,5 +222,15 @@ export function useTransactions() {
   useEffect(() => () => {
     for (const timer of retryTimersRef.current.values()) clearTimeout(timer);
     retryTimersRef.current.clear();
+  }, []);
+
+  useEffect(() => {
+    function refreshOnVisibility() {
+      if (document.visibilityState === "visible") {
+        triggerRetry((value) => value + 1);
+      }
+    }
+    document.addEventListener("visibilitychange", refreshOnVisibility);
+    return () => document.removeEventListener("visibilitychange", refreshOnVisibility);
   }, []);
 }

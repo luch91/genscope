@@ -73,7 +73,7 @@ function Block({ block, index, isSelected }: BlockProps) {
         setBouncing(true);
         setGlowing(true);
         bounceStartRef.current = performance.now();
-        bounceTimer = setTimeout(() => setBouncing(false), 800);
+        bounceTimer = setTimeout(() => setBouncing(false), 520);
         glowTimer = setTimeout(() => setGlowing(false), GLOW_DURATION);
       });
       return () => {
@@ -99,8 +99,8 @@ function Block({ block, index, isSelected }: BlockProps) {
 
     if (bouncing) {
       const elapsed = (now - bounceStartRef.current) / 1000;
-      const bounce = Math.max(0, Math.sin(elapsed * 12) * Math.exp(-elapsed * 5));
-      y = targetY + bounce * 0.8;
+      const bounce = Math.max(0, Math.sin(elapsed * 14) * Math.exp(-elapsed * 7));
+      y = targetY + bounce * 0.32;
     }
 
     // Position lerp
@@ -133,7 +133,7 @@ function Block({ block, index, isSelected }: BlockProps) {
     }
   });
 
-  const initialY = index === 0 ? targetY + 5 : targetY;
+  const initialY = index === 0 ? targetY + 2.5 : targetY;
 
   return (
     <group>

@@ -84,6 +84,7 @@ export default function StatsBar() {
 
   return (
     <div
+      className="stats-bar"
       ref={wrapperRef}
       style={{
         position: "fixed",
@@ -98,6 +99,7 @@ export default function StatsBar() {
     >
       {/* Row 1: Logo + Stats + Status */}
       <div
+        className="stats-bar__primary"
         style={{
           height: 52,
           display: "flex",
@@ -107,7 +109,7 @@ export default function StatsBar() {
         }}
       >
         {/* Logo */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginRight: 12, flexShrink: 0 }}>
+        <div className="stats-bar__brand" style={{ display: "flex", alignItems: "center", gap: 8, marginRight: 12, flexShrink: 0 }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="https://pbs.twimg.com/profile_images/2011221321754034176/AaBmFyfD_400x400.jpg"
@@ -170,6 +172,7 @@ export default function StatsBar() {
 
         {/* Network status badge */}
         <div
+          className="stats-bar__network"
           style={{
             display: "flex",
             alignItems: "center",
@@ -205,6 +208,7 @@ export default function StatsBar() {
 
       {/* Row 2: Search bar */}
       <div
+        className="stats-bar__search"
         style={{
           height: 40,
           display: "flex",
@@ -421,6 +425,7 @@ function ClickableStatItem({
 }) {
   return (
     <button
+      className={`stat-item stat-item--${label.toLowerCase().replaceAll(" ", "-")}`}
       onClick={onClick}
       title={title}
       style={{
@@ -471,7 +476,10 @@ function ClickableStatItem({
 
 function StatItem({ label, value, accent }: { label: string; value: string; accent: string }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "0 12px" }}>
+    <div
+      className={`stat-item stat-item--${label.toLowerCase().replaceAll(" ", "-")}`}
+      style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "0 12px" }}
+    >
       <span
         style={{
           color: accent,
@@ -499,5 +507,5 @@ function StatItem({ label, value, accent }: { label: string; value: string; acce
 }
 
 function Divider() {
-  return <div style={{ width: 1, height: 22, background: "#1a1a2e", flexShrink: 0 }} />;
+  return <div className="stats-bar__divider" style={{ width: 1, height: 22, background: "#1a1a2e", flexShrink: 0 }} />;
 }

@@ -92,6 +92,10 @@ export default function TransactionPanel() {
 
   return (
     <div
+      className={`transaction-panel ${isVisible ? "transaction-panel--visible" : ""}`}
+      role={isVisible ? "dialog" : undefined}
+      aria-modal={isVisible ? "true" : undefined}
+      aria-label={isVisible ? "Transaction details" : undefined}
       style={{
         position: "fixed",
         right: 0,
@@ -109,6 +113,7 @@ export default function TransactionPanel() {
     >
       {isVisible && tx && (
         <div
+          className="transaction-panel__content"
           style={{
             padding: 16,
             overflowY: "auto",
@@ -142,6 +147,8 @@ export default function TransactionPanel() {
               </span>
             </div>
             <button
+              type="button"
+              aria-label="Close transaction details"
               onClick={() => setSelectedTx(null)}
               style={{
                 background: "none",

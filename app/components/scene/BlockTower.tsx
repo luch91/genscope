@@ -10,6 +10,7 @@ export default function BlockTower() {
   const selectedBlockNumber = useSceneState((s) => s.selectedBlockNumber);
   const selectedTxHash = useSceneState((s) => s.selectedTxHash);
   const setSelectedTx = useSceneState((s) => s.setSelectedTx);
+  const towerFloor = -Math.max(0, blocks.length - 1) * BLOCK_STEP - 0.5;
 
   return (
     <group>
@@ -43,7 +44,7 @@ export default function BlockTower() {
       })}
 
       {/* Ground plane */}
-      <mesh position={[0, 0.05, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh position={[0, towerFloor, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <planeGeometry args={[20, 20]} />
         <meshStandardMaterial
           color="#0a0a18"
@@ -54,8 +55,8 @@ export default function BlockTower() {
       </mesh>
 
       <gridHelper
-        args={[20, 20, "#00FF8822", "#00FF8811"]}
-        position={[0, 0.06, 0]}
+        args={[20, 20, "#17452f", "#10261d"]}
+        position={[0, towerFloor + 0.01, 0]}
       />
     </group>
   );

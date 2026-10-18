@@ -12,6 +12,7 @@ const Scene = dynamic(() => import("./components/scene/Scene"), {
   ssr: false,
   loading: () => (
     <div
+      className="app-shell"
       style={{
         width: "100%",
         height: "100%",
@@ -58,6 +59,7 @@ export default function Home() {
 
       {/* 3D canvas — sits below the fixed UI layers */}
       <div
+        className="scene-layer"
         style={{
           position: "absolute",
           inset: 0,

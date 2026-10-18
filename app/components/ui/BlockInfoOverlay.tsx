@@ -16,6 +16,7 @@ export default function BlockInfoOverlay() {
 
   return (
     <div
+      className="block-info-overlay"
       style={{
         position: "fixed",
         bottom: 24,
@@ -82,6 +83,8 @@ export default function BlockInfoOverlay() {
       <div style={{ width: 1, height: 32, background: "#1a1a2e" }} />
 
       <button
+        type="button"
+        aria-label="Close block details"
         onClick={() => setSelectedBlock(null)}
         style={{
           background: "none",
