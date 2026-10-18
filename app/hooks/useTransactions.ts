@@ -108,7 +108,10 @@ export function useTransactions() {
             updateBlockTxDetails(blockNum, valid);
             for (const tx of valid) addFeedTx(tx);
           }
-          const resolved = new Set(valid.map((tx) => tx.hash));
+          const resolved = new Set([
+            ...valid.map((tx) => tx.hash),
+            ...results.flatMap(({ hash, outcome }) => outcome.kind === "not_found" ? [hash] : []),
+          ]);
           const missing = hashes.filter((hash) => !resolved.has(hash));
           if (missing.length === 0) {
             processedRef.current.add(blockNum);

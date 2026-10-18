@@ -7,10 +7,16 @@ describe("receipt recovery outcomes", () => {
   it("distinguishes pending and invalid responses", async () => {
     const fetch = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ result: null }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: {
+        id: `0x${"0".repeat(64)}`,
+        sender: "0x0000000000000000000000000000000000000000",
+        status: 0,
+      } }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ result: { id: "0x1", sender: "0x1" } }), { status: 200 }));
     vi.stubGlobal("fetch", fetch);
 
     await expect(getTransactionReceiptResult("0xpending")).resolves.toEqual({ kind: "pending" });
+    await expect(getTransactionReceiptResult("0xother-network")).resolves.toEqual({ kind: "not_found" });
     await expect(getTransactionReceiptResult("0xinvalid")).resolves.toEqual({ kind: "invalid_response" });
   });
 

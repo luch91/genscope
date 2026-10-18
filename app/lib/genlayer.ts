@@ -102,6 +102,7 @@ export async function getTransactionReceipt(txId: string): Promise<RawReceipt | 
 export type ReceiptFetchResult =
   | { kind: "available"; receipt: RawReceipt }
   | { kind: "pending" }
+  | { kind: "not_found" }
   | { kind: "timeout" }
   | { kind: "rate_limited" }
   | { kind: "upstream_failure"; message: string }
@@ -119,7 +120,8 @@ export async function getTransactionReceiptResult(txId: string): Promise<Receipt
       !result.sender ||
       result.sender === "0x0000000000000000000000000000000000000000"
     ) {
-      return { kind: "pending" };
+      const zeroId = "0x" + "0".repeat(64);
+      return result.id === zeroId ? { kind: "not_found" } : { kind: "pending" };
     }
     if (!result.id || typeof result.status === "undefined") {
       return { kind: "invalid_response" };
