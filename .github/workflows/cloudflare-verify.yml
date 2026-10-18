@@ -24,6 +24,8 @@ jobs:
       - run: npx tsc --noEmit
       - run: npm test
       - run: npm run build:vinext
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test --project=chromium
       - uses: actions/upload-artifact@v4
         with:
           name: cloudflare-build-${{ github.run_id }}

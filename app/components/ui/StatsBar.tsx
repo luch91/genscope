@@ -266,7 +266,12 @@ export default function StatsBar() {
       {/* INDEXED TXS panel — list of all indexed transactions */}
       {openPanel === "txs" && (
         <DropPanel wide>
-          <PanelHeader icon="◉" title={`${(chainTxCount > 0 ? chainTxCount : totalTxCount).toLocaleString()} Transactions`} color="#aaa" />
+          <PanelHeader icon="◉" title={`${totalTxCount.toLocaleString()} Locally Loaded Transactions`} color="#aaa" />
+          {chainTxCount > 0 && (
+            <div style={{ padding: "6px 16px", color: "#555", fontSize: 9, fontFamily: "'JetBrains Mono', monospace", borderBottom: "1px solid #1a1a2e" }}>
+              Chain-wide total: {chainTxCount.toLocaleString()}
+            </div>
+          )}
           <div
             style={{
               maxHeight: 320,

@@ -14,7 +14,7 @@ import {
 
 const NETWORKS = {
   "testnet-bradbury": { rpcUrl: "https://rpc-bradbury.genlayer.com", consensus: "0x0112Bf6e83497965A5fdD6Dad1E447a6E004271D", studio: false },
-  "testnet-asimov": { rpcUrl: "https://rpc.asimov.genlayer.com", consensus: "0x6CAFF6769d70824745AD895663409DC70aB5B28E", studio: false },
+  "testnet-asimov": { rpcUrl: "https://rpc-asimov.genlayer.com", consensus: "0x6CAFF6769d70824745AD895663409DC70aB5B28E", studio: false },
   studionet: { rpcUrl: "https://studio.genlayer.com/api", consensus: "0xb7278A61aa25c888815aFC32Ad3cC52fF24fE575", studio: true },
 } as const;
 

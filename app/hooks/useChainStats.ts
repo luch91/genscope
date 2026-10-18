@@ -29,7 +29,6 @@ async function fetchStats(): Promise<{
 }
 
 export function useChainStats() {
-  const setLatestBlockNumber = useSceneState((s) => s.setLatestBlockNumber);
   const setVerifiedBlockNumber = useSceneState((s) => s.setVerifiedBlockNumber);
   const setChainTxCount = useSceneState((s) => s.setChainTxCount);
 
@@ -38,7 +37,6 @@ export function useChainStats() {
       if (document.visibilityState === "hidden") return;
       const stats = await fetchStats();
       if (stats) {
-        setLatestBlockNumber(stats.lastSealedBlock);
         setVerifiedBlockNumber(stats.lastVerifiedBlock);
         setChainTxCount(stats.totalTransactions);
       }
@@ -47,5 +45,5 @@ export function useChainStats() {
     poll();
     const interval = setInterval(poll, SYNC_POLL_INTERVAL);
     return () => clearInterval(interval);
-  }, [setLatestBlockNumber, setVerifiedBlockNumber, setChainTxCount]);
+  }, [setVerifiedBlockNumber, setChainTxCount]);
 }

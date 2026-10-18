@@ -6,6 +6,12 @@ export default defineConfig({
   reporter: [["html", { outputFolder: "test-results/playwright-report", open: "never" }], ["list"]],
   timeout: 60_000,
   expect: { timeout: 15_000 },
+  webServer: process.env.PLAYWRIGHT_BASE_URL ? undefined : {
+    command: "npm run dev:vinext -- --host 127.0.0.1",
+    url: "http://127.0.0.1:3001",
+    reuseExistingServer: !process.env.CI,
+    timeout: 120_000,
+  },
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3001",
     trace: "retain-on-failure",

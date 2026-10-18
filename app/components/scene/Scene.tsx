@@ -9,6 +9,11 @@ import SceneCamera from "./SceneCamera";
 export default function Scene() {
   return (
     <Canvas
+      fallback={
+        <div role="alert" style={{ color: "#ddd", padding: 24, background: "#080810" }}>
+          The 3D explorer requires WebGL. Blockchain data remains available through search and the live feed.
+        </div>
+      }
       camera={{ position: [6, 4, 8], fov: 50 }}
       style={{ background: "#080810", width: "100%", height: "100%" }}
       gl={{ antialias: true, alpha: false, powerPreference: "high-performance" }}
