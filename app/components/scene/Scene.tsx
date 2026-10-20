@@ -45,8 +45,8 @@ export default function Scene() {
       <fog attach="fog" args={["#080810", 30, 80]} />
 
       {/* Lighting */}
-      <ambientLight intensity={0.15} />
-      <directionalLight position={[5, 10, 5]} intensity={0.4} color="#aaccff" />
+      <ambientLight intensity={0.28} />
+      <directionalLight position={[5, 10, 5]} intensity={0.62} color="#b8d4ff" />
       <pointLight position={[0, 5, 0]} intensity={0.3} color="#00FF88" />
       <pointLight position={[0, -10, 0]} intensity={0.2} color="#4488ff" />
 
@@ -60,9 +60,9 @@ export default function Scene() {
       {!compactGpu && (
         <EffectComposer multisampling={0}>
           <Bloom
-            luminanceThreshold={0.5}
+            luminanceThreshold={0.62}
             luminanceSmoothing={0.5}
-            intensity={0.5}
+            intensity={0.42}
           />
         </EffectComposer>
       )}

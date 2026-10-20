@@ -3,10 +3,10 @@ export const COLORS = {
   background: "#080810",
   neonGreen: "#00FF88",
   gold: "#FFD700",
-  blockEmpty: "#2a2a3a",
-  blockStandard: "#1a3a6a",
-  blockIntelligent: "#4a1a6a",
-  blockMixed: "#2a3a6a",
+  blockEmpty: "#30334d",
+  blockStandard: "#245b9e",
+  blockIntelligent: "#6b2f91",
+  blockMixed: "#285f83",
   blockEdgeGlow: "#00FF88",
   orbStandard: "#4488ff",
   orbIntelligent: "#FFD700",
@@ -25,6 +25,10 @@ export const BLOCK_DEPTH = 2.5;
 // The former 80px-in-world gap visually collapsed once bloom was applied.
 export const BLOCK_GAP = 0.22;
 export const BLOCK_STEP = BLOCK_HEIGHT + BLOCK_GAP;
+// The store retains a much larger navigable history. The scene deliberately
+// presents a stable subset so hydration never forces the camera to zoom out.
+export const SCENE_VISIBLE_BLOCKS_DESKTOP = 14;
+export const SCENE_VISIBLE_BLOCKS_MOBILE = 12;
 // One shader-based grid spans the scene; increasing this footprint does not
 // create additional meshes or geometry subdivisions.
 export const GRID_SIZE = 160;

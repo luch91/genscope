@@ -5,13 +5,13 @@ import { Html } from "@react-three/drei";
 import * as THREE from "three";
 import type { Block as BlockType } from "../../types";
 import {
-  BLOCK_WIDTH,
-  BLOCK_HEIGHT,
   BLOCK_DEPTH,
-  BLOCK_STEP,
+  BLOCK_HEIGHT,
+  BLOCK_WIDTH,
   COLORS,
   GLOW_DURATION,
 } from "../../lib/constants";
+import { blockPositionY } from "../../lib/scene-layout";
 import { getBlockColorType } from "../../lib/classifiers";
 import { useSceneState } from "../../hooks/useSceneState";
 import { formatDistanceToNow } from "date-fns";
@@ -43,7 +43,7 @@ interface BlockProps {
 function Block({ block, index, isSelected }: BlockProps) {
   const setSelectedBlock = useSceneState((s) => s.setSelectedBlock);
 
-  const meshRef = useRef<THREE.Mesh>(null);
+  const transformRef = useRef<THREE.Group>(null);
   const edgesRef = useRef<THREE.LineSegments>(null);
   const [hovered, setHovered] = useState(false);
   const [bouncing, setBouncing] = useState(false);
@@ -61,7 +61,7 @@ function Block({ block, index, isSelected }: BlockProps) {
 
   const baseColor = COLOR_MAP[colorType];
   const glowColor = GLOW_MAP[colorType];
-  const targetY = index * -BLOCK_STEP;
+  const targetY = blockPositionY(index);
 
   // Animate new block dropping in
   useEffect(() => {
@@ -89,8 +89,8 @@ function Block({ block, index, isSelected }: BlockProps) {
     needsUpdateRef.current = true;
   }, [bouncing, hovered, isSelected, glowing, targetY]);
 
-  useFrame(() => {
-    if (!meshRef.current) return;
+  useFrame((_, delta) => {
+    if (!transformRef.current) return;
     // Skip work when fully settled — major perf gain with 100 blocks
     if (!needsUpdateRef.current) return;
 
@@ -104,28 +104,28 @@ function Block({ block, index, isSelected }: BlockProps) {
     }
 
     // Position lerp
-    const posDiff = y - meshRef.current.position.y;
-    meshRef.current.position.y += posDiff * 0.15;
-
-    // Keep edges in sync
-    if (edgesRef.current) {
-      edgesRef.current.position.y = meshRef.current.position.y;
-    }
+    const posDiff = y - transformRef.current.position.y;
+    // Frame-rate independent damping avoids prolonged intersections when a
+    // busy mobile GPU drops frames during hydration.
+    const positionAlpha = 1 - Math.exp(-delta * 14);
+    const scaleAlpha = 1 - Math.exp(-delta * 10);
+    const opacityAlpha = 1 - Math.exp(-delta * 8);
+    transformRef.current.position.y += posDiff * positionAlpha;
 
     // Scale lerp
     const targetScale = hovered || isSelected ? 1.04 : 1.0;
-    meshRef.current.scale.x += (targetScale - meshRef.current.scale.x) * 0.1;
-    meshRef.current.scale.z += (targetScale - meshRef.current.scale.z) * 0.1;
+    transformRef.current.scale.x += (targetScale - transformRef.current.scale.x) * scaleAlpha;
+    transformRef.current.scale.z += (targetScale - transformRef.current.scale.z) * scaleAlpha;
 
     // Edge opacity lerp
     if (edgesRef.current) {
       const mat = edgesRef.current.material as THREE.LineBasicMaterial;
-      const targetOpacity = glowing ? 1.0 : isSelected || hovered ? 0.9 : 0.35;
-      mat.opacity += (targetOpacity - mat.opacity) * 0.08;
+      const targetOpacity = glowing ? 1.0 : isSelected || hovered ? 0.95 : 0.58;
+      mat.opacity += (targetOpacity - mat.opacity) * opacityAlpha;
 
       // Mark settled when all lerps have converged
       const posSettled = Math.abs(posDiff) < 0.001;
-      const scaleSettled = Math.abs(meshRef.current.scale.x - targetScale) < 0.001;
+      const scaleSettled = Math.abs(transformRef.current.scale.x - targetScale) < 0.001;
       const opacitySettled = Math.abs(mat.opacity - targetOpacity) < 0.005;
       if (posSettled && scaleSettled && opacitySettled && !bouncing && !hovered && !isSelected && !glowing) {
         needsUpdateRef.current = false;
@@ -136,10 +136,8 @@ function Block({ block, index, isSelected }: BlockProps) {
   const initialY = index === 0 ? targetY + 2.5 : targetY;
 
   return (
-    <group>
+    <group ref={transformRef} position={[0, initialY, 0]}>
       <mesh
-        ref={meshRef}
-        position={[0, initialY, 0]}
         geometry={SHARED_GEOMETRY}
         onClick={(e) => {
           e.stopPropagation();
@@ -157,25 +155,28 @@ function Block({ block, index, isSelected }: BlockProps) {
       >
         <meshStandardMaterial
           color={baseColor}
-          transparent
-          opacity={isSelected ? 0.3 : 0.85}
-          roughness={0.2}
-          metalness={0.6}
+          roughness={0.28}
+          metalness={0.48}
           emissive={glowing || isSelected ? glowColor : baseColor}
-          emissiveIntensity={glowing ? 0.8 : isSelected ? 0.4 : 0.05}
+          emissiveIntensity={glowing ? 0.72 : isSelected ? 0.42 : 0.14}
+          polygonOffset
+          polygonOffsetFactor={1}
+          polygonOffsetUnits={1}
         />
       </mesh>
 
       {/* Edge glow lines */}
       <lineSegments
         ref={edgesRef}
-        position={[0, initialY, 0]}
         geometry={SHARED_EDGES}
+        renderOrder={2}
       >
         <lineBasicMaterial
           color={glowColor}
           transparent
-          opacity={0.35}
+          opacity={0.58}
+          depthTest
+          depthWrite={false}
           linewidth={1}
         />
       </lineSegments>
@@ -183,7 +184,7 @@ function Block({ block, index, isSelected }: BlockProps) {
       {/* Tooltip on hover */}
       {hovered && !isSelected && (
         <Html
-          position={[0, initialY + BLOCK_HEIGHT, 0]}
+          position={[0, BLOCK_HEIGHT + 0.16, 0]}
           center
           distanceFactor={10}
           zIndexRange={[100, 0]}

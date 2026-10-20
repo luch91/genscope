@@ -4,8 +4,11 @@ import { useThree, useFrame } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
 import { useSceneState } from "../../hooks/useSceneState";
-import { BLOCK_STEP } from "../../lib/constants";
-import { defaultCameraFrame } from "../../lib/scene-layout";
+import {
+  blockPositionY,
+  defaultCameraFrame,
+  sceneBlockWindow,
+} from "../../lib/scene-layout";
 
 export default function SceneCamera() {
   const { camera, size } = useThree();
@@ -39,7 +42,11 @@ export default function SceneCamera() {
         (b) => b.number === selectedBlockNumber
       );
       if (blockIndex !== -1) {
-        const blockY = blockIndex * -BLOCK_STEP;
+        const sceneBlocks = sceneBlockWindow(blocks, blockIndex, size.width);
+        const sceneIndex = sceneBlocks.findIndex(
+          (block) => block.number === selectedBlockNumber,
+        );
+        const blockY = blockPositionY(sceneIndex);
         targetRef.current.set(0, blockY, 0);
         const distance = size.width < 600 ? 8.5 : 7;
         positionRef.current.set(distance * 0.72, blockY + 2.6, distance);
