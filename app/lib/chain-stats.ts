@@ -9,9 +9,10 @@ export const CHAIN_STATS_SOURCE = {
 export const CHAIN_STATS_MAX_AGE_SECONDS = 45;
 
 export interface ChainStatsPayload {
-  lastSealedBlock: number;
-  lastVerifiedBlock: number;
+  lastSealedBlock: number | null;
+  lastVerifiedBlock: number | null;
   totalTransactions: number | null;
+  delivery: "live" | "last-known-good";
   source: typeof CHAIN_STATS_SOURCE;
   freshness: {
     observedAt: string;
@@ -40,9 +41,6 @@ export function normalizeChainStats(
   const record = value as Record<string, unknown>;
   const lastSealedBlock = nonNegativeInteger(record.lastSealedBlock);
   const lastVerifiedBlock = nonNegativeInteger(record.lastVerifiedBlock);
-  if (lastSealedBlock === null || lastVerifiedBlock === null) {
-    throw new Error("INVALID_UPSTREAM_RESPONSE");
-  }
 
   return {
     lastSealedBlock,
@@ -50,6 +48,7 @@ export function normalizeChainStats(
     // A missing total is not zero. Preserve its unavailable state while still
     // serving independently valid block statistics.
     totalTransactions: nonNegativeInteger(record.totalTransactions),
+    delivery: "live",
     source: CHAIN_STATS_SOURCE,
     freshness: {
       observedAt,
@@ -57,6 +56,20 @@ export function normalizeChainStats(
       maxAgeSeconds: CHAIN_STATS_MAX_AGE_SECONDS,
     },
   };
+}
+
+export function hasUsableChainStats(value: ChainStatsPayload): boolean {
+  return value.lastVerifiedBlock !== null || value.totalTransactions !== null;
+}
+
+export function asLastKnownGood(value: ChainStatsPayload): ChainStatsPayload {
+  return { ...value, delivery: "last-known-good" };
+}
+
+export function recoverLastKnownGood(
+  value: ChainStatsPayload | null,
+): ChainStatsPayload | null {
+  return value && hasUsableChainStats(value) ? asLastKnownGood(value) : null;
 }
 
 export function chainStatsFreshness(
