@@ -5,6 +5,7 @@ import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
 import { useSceneState } from "../../hooks/useSceneState";
 import { BLOCK_STEP } from "../../lib/constants";
+import { defaultCameraFrame } from "../../lib/scene-layout";
 
 export default function SceneCamera() {
   const { camera, size } = useThree();
@@ -26,15 +27,9 @@ export default function SceneCamera() {
   // runs only when the retained block window or viewport width changes.
   useEffect(() => {
     if (selectedBlockNumber !== null) return;
-    const towerHeight = Math.max(0, blocks.length - 1) * BLOCK_STEP;
-    const midpoint = -towerHeight / 2;
-    const distance = Math.max(size.width < 600 ? 14 : 12, towerHeight * 1.9 + 12);
-    targetRef.current.set(0, midpoint, 0);
-    positionRef.current.set(
-      size.width < 600 ? distance * 0.58 : distance * 0.64,
-      midpoint + Math.max(3.5, towerHeight * 0.22),
-      distance,
-    );
+    const frame = defaultCameraFrame(blocks.length, size.width);
+    targetRef.current.set(0, frame.targetY, 0);
+    positionRef.current.set(frame.x, frame.y, frame.z);
   }, [blocks.length, selectedBlockNumber, size.width]);
 
   // Animate camera when selection changes
@@ -50,15 +45,9 @@ export default function SceneCamera() {
         positionRef.current.set(distance * 0.72, blockY + 2.6, distance);
       }
     } else {
-      const towerHeight = Math.max(0, blocks.length - 1) * BLOCK_STEP;
-      const midpoint = -towerHeight / 2;
-      const distance = Math.max(size.width < 600 ? 14 : 12, towerHeight * 1.9 + 12);
-      targetRef.current.set(0, midpoint, 0);
-      positionRef.current.set(
-        size.width < 600 ? distance * 0.58 : distance * 0.64,
-        midpoint + Math.max(3.5, towerHeight * 0.22),
-        distance,
-      );
+      const frame = defaultCameraFrame(blocks.length, size.width);
+      targetRef.current.set(0, frame.targetY, 0);
+      positionRef.current.set(frame.x, frame.y, frame.z);
     }
   }, [selectedBlockNumber, blocks, size.width]);
 
@@ -82,7 +71,7 @@ export default function SceneCamera() {
       touches={{ ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN }}
       dampingFactor={0.05}
       minDistance={3}
-      maxDistance={30}
+      maxDistance={34}
       maxPolarAngle={Math.PI / 1.6}
     />
   );

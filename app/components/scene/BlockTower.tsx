@@ -6,7 +6,8 @@ import { Grid } from "@react-three/drei";
 import {
   BLOCK_HEIGHT,
   BLOCK_STEP,
-  GRID_DIVISIONS,
+  GRID_CELL_SIZE,
+  GRID_FADE_DISTANCE,
   GRID_FLOOR_CLEARANCE,
   GRID_SIZE,
 } from "../../lib/constants";
@@ -72,15 +73,15 @@ export default function BlockTower() {
       <Grid
         args={[GRID_SIZE, GRID_SIZE]}
         position={[0, towerFloor + 0.012, 0]}
-        cellSize={GRID_SIZE / GRID_DIVISIONS}
-        cellThickness={0.8}
+        cellSize={GRID_CELL_SIZE}
+        cellThickness={0.65}
         cellColor="#1a9b62"
         sectionSize={4}
         sectionThickness={1.6}
         sectionColor="#32f39a"
-        fadeDistance={GRID_SIZE * 0.9}
-        fadeStrength={0.7}
-        infiniteGrid={false}
+        fadeDistance={GRID_FADE_DISTANCE}
+        fadeStrength={0.85}
+        infiniteGrid
         followCamera={false}
       />
     </group>
