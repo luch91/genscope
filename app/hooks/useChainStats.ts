@@ -11,9 +11,10 @@ export function parseChainStatsResponse(data: unknown, now = Date.now()): (Chain
   const record = data as Partial<ChainStatsPayload> & { error?: unknown };
   if (
     record.error
-    || typeof record.lastSealedBlock !== "number"
-    || typeof record.lastVerifiedBlock !== "number"
+    || (record.lastSealedBlock !== null && typeof record.lastSealedBlock !== "number")
+    || (record.lastVerifiedBlock !== null && typeof record.lastVerifiedBlock !== "number")
     || (record.totalTransactions !== null && typeof record.totalTransactions !== "number")
+    || (record.delivery !== "live" && record.delivery !== "last-known-good")
     || !record.source
     || !record.freshness
     || typeof record.freshness.observedAt !== "string"
@@ -21,7 +22,9 @@ export function parseChainStatsResponse(data: unknown, now = Date.now()): (Chain
   ) return null;
   return {
     ...record as ChainStatsPayload,
-    status: chainStatsFreshness(record.freshness.observedAt, record.freshness.maxAgeSeconds, now),
+    status: record.delivery === "last-known-good"
+      ? "stale"
+      : chainStatsFreshness(record.freshness.observedAt, record.freshness.maxAgeSeconds, now),
   };
 }
 
@@ -44,11 +47,13 @@ export function useChainStats() {
       if (document.visibilityState === "hidden") return;
       const stats = await fetchStats();
       if (stats) {
-        setVerifiedBlockNumber(stats.lastVerifiedBlock);
+        setVerifiedBlockNumber(stats.lastVerifiedBlock ?? 0);
         setChainStats(
           stats.totalTransactions,
           stats.freshness.observedAt,
-          stats.totalTransactions === null ? "unavailable" : stats.status,
+          stats.lastVerifiedBlock === null && stats.totalTransactions === null
+            ? "unavailable"
+            : stats.status,
         );
       } else {
         const current = useSceneState.getState();

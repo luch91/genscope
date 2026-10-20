@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   CHAIN_STATS_SOURCE,
+  asLastKnownGood,
   chainStatsFreshness,
+  hasUsableChainStats,
   normalizeChainStats,
+  recoverLastKnownGood,
   transactionCountPresentation,
 } from "../app/lib/chain-stats";
 import { parseChainStatsResponse } from "../app/hooks/useChainStats";
@@ -17,6 +20,7 @@ describe("chain statistics provenance", () => {
     expect(stats.totalTransactions).toBe(98_876_305);
     expect(stats.source).toEqual(CHAIN_STATS_SOURCE);
     expect(stats.source.independentlyVerified).toBe(false);
+    expect(stats.delivery).toBe("live");
   });
 
   it("represents a missing upstream total as unavailable rather than zero", () => {
@@ -48,9 +52,24 @@ describe("chain statistics provenance", () => {
     expect(stats.totalTransactions).toBe(expected);
   });
 
-  it("rejects invalid mandatory block statistics", () => {
-    expect(() => normalizeChainStats({ lastSealedBlock: null, lastVerifiedBlock: 9, totalTransactions: 0 })).toThrow();
-    expect(() => normalizeChainStats({ lastSealedBlock: 10, lastVerifiedBlock: "9", totalTransactions: 0 })).toThrow();
+  it("preserves partial authoritative responses without fabricating missing fields", () => {
+    const verifiedOnly = normalizeChainStats({ lastVerifiedBlock: 9 });
+    const transactionsOnly = normalizeChainStats({ totalTransactions: 20 });
+    expect(verifiedOnly).toMatchObject({ lastSealedBlock: null, lastVerifiedBlock: 9, totalTransactions: null });
+    expect(transactionsOnly).toMatchObject({ lastSealedBlock: null, lastVerifiedBlock: null, totalTransactions: 20 });
+    expect(hasUsableChainStats(verifiedOnly)).toBe(true);
+    expect(hasUsableChainStats(normalizeChainStats({ lastSealedBlock: 10 }))).toBe(false);
+  });
+
+  it("marks last-known-good recovery as stale while preserving provenance", () => {
+    const cached = asLastKnownGood(normalizeChainStats(
+      { lastSealedBlock: 10, lastVerifiedBlock: 9, totalTransactions: 20 },
+      "2026-10-18T10:00:00.000Z",
+    ));
+    expect(cached.delivery).toBe("last-known-good");
+    expect(parseChainStatsResponse(cached, Date.parse("2026-10-18T10:00:01.000Z"))?.status).toBe("stale");
+    expect(recoverLastKnownGood(null)).toBeNull();
+    expect(recoverLastKnownGood(normalizeChainStats({ lastSealedBlock: 10 }))).toBeNull();
   });
 
   it("marks cached statistics stale after the declared freshness window", () => {

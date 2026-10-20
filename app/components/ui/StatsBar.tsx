@@ -152,6 +152,9 @@ export default function StatsBar() {
           label="VERIFIED BLOCKS"
           value={verifiedBlockNumber > 0 ? `#${verifiedBlockNumber.toLocaleString()}` : "—"}
           accent="#00FF88"
+          title={verifiedBlockNumber > 0
+            ? `Explorer-reported verified block (${chainStatsFreshness})`
+            : "Verified block unavailable from the authoritative explorer"}
         />
         <Divider />
 
@@ -479,10 +482,11 @@ function ClickableStatItem({
   );
 }
 
-function StatItem({ label, value, accent }: { label: string; value: string; accent: string }) {
+function StatItem({ label, value, accent, title }: { label: string; value: string; accent: string; title?: string }) {
   return (
     <div
       className={`stat-item stat-item--${label.toLowerCase().replaceAll(" ", "-")}`}
+      title={title}
       style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "0 12px" }}
     >
       <span
