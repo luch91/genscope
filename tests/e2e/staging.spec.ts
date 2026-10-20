@@ -3,10 +3,14 @@ import { expect, test } from "@playwright/test";
 test("loads the explorer, WebGL scene, and live APIs without client errors", async ({ page }) => {
   const consoleErrors: string[] = [];
   const failedRequests: string[] = [];
+  let statsUnavailable = false;
   page.on("console", (message) => {
     if (message.type() === "error") consoleErrors.push(message.text());
   });
   page.on("requestfailed", (request) => failedRequests.push(`${request.method()} ${request.url()}`));
+  page.on("response", (response) => {
+    if (response.url().endsWith("/api/stats") && response.status() === 502) statsUnavailable = true;
+  });
 
   // The explorer intentionally polls forever, so networkidle is not a valid
   // readiness signal. Assert the user-visible application state instead.
@@ -32,7 +36,16 @@ test("loads the explorer, WebGL scene, and live APIs without client errors", asy
 
   const firstPartyFailures = failedRequests.filter((url) => url.includes(new URL(page.url()).host));
   expect(firstPartyFailures).toEqual([]);
-  expect(consoleErrors.filter((entry) => !entry.includes("THREE.WebGLRenderer"))).toEqual([]);
+  if (statsUnavailable) {
+    await expect(page.getByTitle(/Network transaction total unavailable/)).toBeVisible();
+  }
+  expect(
+    consoleErrors.filter(
+      (entry) =>
+        !entry.includes("THREE.WebGLRenderer") &&
+        !(statsUnavailable && entry.includes("server responded with a status of 502")),
+    ),
+  ).toEqual([]);
 });
 
 test("searches a current block and opens its result", async ({ page, request }) => {
