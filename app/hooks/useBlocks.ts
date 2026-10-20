@@ -20,16 +20,23 @@ const BLOCK_FETCH_CONCURRENCY = 5;
 export function blockPollDelay({
   visible,
   consecutiveFailures,
+  elapsedMs = 0,
 }: {
   visible: boolean;
   consecutiveFailures: number;
+  elapsedMs?: number;
 }): number {
   if (!visible) return HIDDEN_BLOCK_POLL_INTERVAL;
-  if (consecutiveFailures === 0) return BLOCK_POLL_INTERVAL;
-  return Math.min(
-    MAX_BLOCK_POLL_BACKOFF,
-    BLOCK_POLL_INTERVAL * 2 ** consecutiveFailures,
-  );
+  if (consecutiveFailures > 0) {
+    return Math.min(
+      MAX_BLOCK_POLL_BACKOFF,
+      BLOCK_POLL_INTERVAL * 2 ** consecutiveFailures,
+    );
+  }
+  // Keep request starts on the target cadence without overlapping requests.
+  // Slow responses cause the next poll to start immediately after completion;
+  // fast responses wait only for the remainder of the interval.
+  return Math.max(0, BLOCK_POLL_INTERVAL - elapsedMs);
 }
 
 export function sortBlocksForReconciliation<T extends { number: number }>(blocks: T[]): T[] {
@@ -180,7 +187,7 @@ export function useBlocks() {
       }
     }
 
-    function scheduleNextPoll(immediate = false) {
+    function scheduleNextPoll(immediate = false, previousPollDurationMs = 0) {
       if (cancelled) return;
       if (pollTimer) clearTimeout(pollTimer);
       const visible = document.visibilityState === "visible";
@@ -189,12 +196,14 @@ export function useBlocks() {
         : blockPollDelay({
             visible,
             consecutiveFailures: consecutiveFailuresRef.current,
+            elapsedMs: previousPollDurationMs,
           });
       pollTimer = setTimeout(async () => {
         // Hidden tabs use a low-frequency health probe. Returning to the page
         // triggers an immediate reconciliation via the visibility handler.
+        const pollStartedAt = performance.now();
         await pollNewBlocks();
-        scheduleNextPoll();
+        scheduleNextPoll(false, performance.now() - pollStartedAt);
       }, delay);
     }
 

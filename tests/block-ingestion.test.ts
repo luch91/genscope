@@ -24,6 +24,13 @@ describe("block ingestion recovery", () => {
     expect(blockPollDelay({ visible: true, consecutiveFailures: 10 })).toBe(30_000);
     expect(blockPollDelay({ visible: false, consecutiveFailures: 0 })).toBe(15_000);
   });
+
+  it("subtracts request duration to preserve start cadence without overlap", () => {
+    expect(blockPollDelay({ visible: true, consecutiveFailures: 0, elapsedMs: 250 })).toBe(750);
+    expect(blockPollDelay({ visible: true, consecutiveFailures: 0, elapsedMs: 1_500 })).toBe(0);
+    expect(blockPollDelay({ visible: false, consecutiveFailures: 0, elapsedMs: 2_000 })).toBe(15_000);
+    expect(blockPollDelay({ visible: true, consecutiveFailures: 2, elapsedMs: 1_500 })).toBe(4_000);
+  });
   it("tracks intermittent failures and recovers every missing block", async () => {
     const attempts = new Map<number, number>();
     const fetcher = async (number: number) => {
