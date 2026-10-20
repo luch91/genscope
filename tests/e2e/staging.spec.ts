@@ -37,7 +37,7 @@ test("loads the explorer, WebGL scene, and live APIs without client errors", asy
   const firstPartyFailures = failedRequests.filter((url) => url.includes(new URL(page.url()).host));
   expect(firstPartyFailures).toEqual([]);
   if (statsUnavailable) {
-    await expect(page.getByText("Unavailable").first()).toBeVisible();
+    await expect(page.getByTitle(/Network transaction total unavailable/)).toBeVisible();
   }
   expect(
     consoleErrors.filter(
